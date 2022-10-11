@@ -4,7 +4,6 @@ package main
 // import core and vendor packages
 import "core:fmt"
 import SDL "vendor:sdl2"
-import SDL_Image "vendor:sdl2/image"
 
 // constants
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN
@@ -23,7 +22,6 @@ game := Game{}
 main :: proc()
 {
 	assert(SDL.Init(SDL.INIT_VIDEO) == 0, SDL.GetErrorString())
-	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
 	defer SDL.Quit()
 
 	window := SDL.CreateWindow(

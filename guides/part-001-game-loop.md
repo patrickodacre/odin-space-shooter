@@ -3,7 +3,6 @@
 * [YouTube Video]()
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)
-* [SDL2 Image Library](https://wiki.libsdl.org/SDL_image/CategoryAPI)
 * [Odin Documentation](https://github.com/odin-lang/Odin/wiki)
 
 ## SDL2 - Some Functions Used
@@ -11,10 +10,6 @@
 **SDL.Init(u32 Subsystem_Init_Flags)**
 
 We call this using the `SDL.INIT_VIDEO` flag to initialize the video subsystem. The `events` subsystem is also initialized automatically.
-
-**SDL_Image.Init()**
-
-The Image library extends the core library to allow for using .png images when we use the `SDL_Image.INIT_PNG` flag.
 
 **SDL.Quit()**
 
