@@ -1,4 +1,4 @@
-package main
+package game
 // our package name. We call this 'main' but this name could be anything you want.
 
 // import core and vendor packages
