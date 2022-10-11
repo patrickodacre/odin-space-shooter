@@ -9,7 +9,7 @@ import SDL_Image "vendor:sdl2/image"
 // constants
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN
 RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
-TARGET_DT :: 1000 / 60
+TARGET_DELTA_TIME :: 1000 / 60
 WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 
@@ -127,7 +127,7 @@ main :: proc()
 
 		// spin lock to hit our framerate
 		end = get_time()
-		for end - start < TARGET_DT
+		for end - start < TARGET_DELTA_TIME
 		{
 			end = get_time()
 		}
