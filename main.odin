@@ -132,7 +132,7 @@ main :: proc()
 			end = get_time()
 		}
 
-		fmt.println("FPS : ", 1000 / (end - start))
+		// fmt.println("FPS : ", 1000 / (end - start))
 
 		// actual flipping / presentation of the copy
 		// read comments here :: https://wiki.libsdl.org/SDL_RenderCopy
