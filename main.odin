@@ -36,9 +36,9 @@ main :: proc()
 	defer SDL.DestroyWindow(window)
 
 	// Must not do VSync because we run the tick loop on the same thread as rendering.
-	renderer := SDL.CreateRenderer(window, -1, RENDER_FLAGS)
-	assert(renderer != nil, SDL.GetErrorString())
-	defer SDL.DestroyRenderer(renderer)
+	game.renderer = SDL.CreateRenderer(window, -1, RENDER_FLAGS)
+	assert(game.renderer != nil, SDL.GetErrorString())
+	defer SDL.DestroyRenderer(game.renderer)
 
 	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
 	start : f64
