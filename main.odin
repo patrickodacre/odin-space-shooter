@@ -12,6 +12,7 @@ RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
 TARGET_DELTA_TIME :: 1000 / 60
 WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
+PLAYER_SPEED : f64 : 500 // pixels per second
 
 Game :: struct
 {
@@ -19,7 +20,11 @@ Game :: struct
 	renderer: ^SDL.Renderer,
 
 	// player
-	player: Entity
+	player: Entity,
+	left: bool,
+	right: bool,
+	up: bool,
+	down: bool,
 }
 
 Entity :: struct
@@ -89,6 +94,11 @@ main :: proc()
 		// 1. Get our Keyboard State :: which keys are pressed?
 		state = SDL.GetKeyboardState(nil)
 
+		game.left = state[SDL.Scancode.A] > 0
+		game.right = state[SDL.Scancode.D] > 0
+		game.up = state[SDL.Scancode.W] > 0
+		game.down = state[SDL.Scancode.S] > 0
+
 		// 2. Handle any input events :: quit, pause, fire weapons?
 		if SDL.PollEvent(&event)
 		{
@@ -116,6 +126,28 @@ main :: proc()
 		// 3. Update and Render
 
 		// update player position, etc...
+		delta_motion := PLAYER_SPEED * (f64(TARGET_DELTA_TIME) / 1000)
+
+		if game.left
+		{
+			move_player(-delta_motion, 0)
+		}
+
+		if game.right
+		{
+			move_player(delta_motion, 0)
+		}
+
+		if game.up
+		{
+			move_player(0, -delta_motion)
+		}
+
+		if game.down
+		{
+			move_player(0, delta_motion)
+		}
+
 		// then render the updated entity:
 		SDL.RenderCopy(game.renderer, game.player.tex, nil, &game.player.dest)
 
@@ -148,6 +180,12 @@ main :: proc()
 
 	}
 
+}
+
+move_player :: proc(x, y: f64)
+{
+	game.player.dest.x = clamp(game.player.dest.x + i32(x), 0, WINDOW_WIDTH - game.player.dest.w)
+	game.player.dest.y = clamp(game.player.dest.y + i32(y), 0, WINDOW_HEIGHT - game.player.dest.h)
 }
 
 get_time :: proc() -> f64
