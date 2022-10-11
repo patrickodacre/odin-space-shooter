@@ -4,16 +4,28 @@ package main
 // import core and vendor packages
 import "core:fmt"
 import SDL "vendor:sdl2"
+import SDL_Image "vendor:sdl2/image"
 
 // constants
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN
 RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
 TARGET_DT :: 1000 / 60
+WINDOW_WIDTH :: 1600
+WINDOW_HEIGHT :: 960
 
 Game :: struct
 {
 	perf_frequency: f64,
 	renderer: ^SDL.Renderer,
+
+	// player
+	player: Entity
+}
+
+Entity :: struct
+{
+	tex: ^SDL.Texture,
+	dest: SDL.Rect,
 }
 
 game := Game{}
@@ -22,14 +34,15 @@ game := Game{}
 main :: proc()
 {
 	assert(SDL.Init(SDL.INIT_VIDEO) == 0, SDL.GetErrorString())
+	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
 	defer SDL.Quit()
 
 	window := SDL.CreateWindow(
 		"Odin Space Shooter",
 		SDL.WINDOWPOS_CENTERED,
 		SDL.WINDOWPOS_CENTERED,
-		640,
-		480,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
 		WINDOW_FLAGS
 	)
 	assert(window != nil, SDL.GetErrorString())
@@ -39,6 +52,25 @@ main :: proc()
 	game.renderer = SDL.CreateRenderer(window, -1, RENDER_FLAGS)
 	assert(game.renderer != nil, SDL.GetErrorString())
 	defer SDL.DestroyRenderer(game.renderer)
+
+	// load assets - start
+
+	player_texture := SDL_Image.LoadTexture(game.renderer, "assets/player.png")
+	assert(player_texture != nil, SDL.GetErrorString())
+
+	// init with starting position
+	destination := SDL.Rect{x = 20, y = WINDOW_HEIGHT / 2}
+	SDL.QueryTexture(player_texture, nil, nil, &destination.w, &destination.h)
+	// reduce the source size by 10x
+	destination.w /= 10
+	destination.h /= 10
+
+	game.player = Entity{
+		tex = player_texture,
+		dest = destination,
+	}
+
+	// load assets - end
 
 	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
 	start : f64
@@ -83,8 +115,9 @@ main :: proc()
 
 		// 3. Update and Render
 
-		// TODO: 
-
+		// update player position, etc...
+		// then render the updated entity:
+		SDL.RenderCopy(game.renderer, game.player.tex, nil, &game.player.dest)
 
 
 
