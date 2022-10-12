@@ -228,6 +228,7 @@ create_entities :: proc()
 	// laser
 	laser_texture := SDL_Image.LoadTexture(game.renderer, "assets/bullet_red_2.png")
 	assert(laser_texture != nil, SDL.GetErrorString())
+	destination = SDL.Rect{}
 	SDL.QueryTexture(laser_texture, nil, nil, &destination.w, &destination.h)
 	destination.w /= 3
 	destination.h /= 3
