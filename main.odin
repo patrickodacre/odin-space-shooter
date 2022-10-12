@@ -14,6 +14,8 @@ WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 PLAYER_SPEED : f64 : 500 // pixels per second
 LASER_SPEED : f64 : 700
+LASER_COOLDOWN_TIMER : f64 : 50
+NUM_OF_LASERS :: 100
 
 Game :: struct
 {
@@ -22,21 +24,22 @@ Game :: struct
 
 	// player
 	player: Entity,
+	player_tex: ^SDL.Texture,
 	left: bool,
 	right: bool,
 	up: bool,
 	down: bool,
 
 
-	laser: Entity,
+	laser_tex: ^SDL.Texture,
+	lasers: [NUM_OF_LASERS]Entity,
 	fire: bool,
+	laser_cooldown : f64,
 }
 
 Entity :: struct
 {
-	tex: ^SDL.Texture,
 	dest: SDL.Rect,
-	health: int,
 }
 
 game := Game{}
@@ -139,26 +142,41 @@ main :: proc()
 		}
 
 		// then render the updated entity:
-		SDL.RenderCopy(game.renderer, game.player.tex, nil, &game.player.dest)
+		SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
 
-		if game.fire && game.laser.health == 0
+
+		// FIRE LASERS
+		if game.fire && !(game.laser_cooldown > 0)
 		{
-			game.laser.dest.x = game.player.dest.x + 30
-			game.laser.dest.y = game.player.dest.y
-			game.laser.health = 1
+			// find a laser:
+			reload : for l in &game.lasers
+			{
+				// find the first one available
+				if l.dest.x > WINDOW_WIDTH
+				{
+
+					l.dest.x = game.player.dest.x + 20
+					l.dest.y = game.player.dest.y
+					// reset the cooldown to prevent firing too rapidly
+					game.laser_cooldown = LASER_COOLDOWN_TIMER
+
+					break reload
+				}
+			}
 		}
 
-		if game.laser.dest.x > WINDOW_WIDTH
+		for l in &game.lasers
 		{
-			game.laser.health = 0
+			if l.dest.x < WINDOW_WIDTH
+			{
+				l.dest.x += i32(get_delta_motion(LASER_SPEED))
+				SDL.RenderCopy(game.renderer, game.laser_tex, nil, &l.dest)
+			}
 		}
 
-		if game.laser.health > 0
-		{
-			game.laser.dest.x += i32(get_delta_motion(LASER_SPEED))
-			SDL.RenderCopy(game.renderer, game.laser.tex, nil, &game.laser.dest)
-		}
 
+		// decrement our cooldown
+		game.laser_cooldown -= LASER_SPEED * (TARGET_DELTA_TIME / 1000)
 
 		// ... end LOOP code
 
@@ -219,24 +237,30 @@ create_entities :: proc()
 	destination.w /= 10
 	destination.h /= 10
 
+	game.player_tex = player_texture
 	game.player = Entity{
-		tex = player_texture,
 		dest = destination,
-		health = 10,
 	}
 
-	// laser
 	laser_texture := SDL_Image.LoadTexture(game.renderer, "assets/bullet_red_2.png")
 	assert(laser_texture != nil, SDL.GetErrorString())
-	destination = SDL.Rect{}
-	SDL.QueryTexture(laser_texture, nil, nil, &destination.w, &destination.h)
-	destination.w /= 3
-	destination.h /= 3
+	laser_w : i32
+	laser_h :i32
+	SDL.QueryTexture(laser_texture, nil, nil, &laser_w, &laser_h)
 
-	game.laser = Entity{
-		tex = laser_texture,
-		dest = destination,
-		health = 0,
+	game.laser_tex = laser_texture
+
+	for index in 0..=(NUM_OF_LASERS-1)
+	{
+		destination := SDL.Rect{
+			x = WINDOW_WIDTH + 20, // offscreen means available to fire
+			w = laser_w / 3,
+			h = laser_h / 3,
+		}
+
+		game.lasers[index] = Entity{
+			dest = destination,
+		}
 	}
 
 }
