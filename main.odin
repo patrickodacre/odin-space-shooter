@@ -9,7 +9,7 @@ import SDL_Image "vendor:sdl2/image"
 // constants
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN
 RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
-TARGET_DELTA_TIME :: 1000 / 60
+TARGET_DELTA_TIME :: f64(1000) / f64(60)
 WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 PLAYER_SPEED : f64 : 500 // pixels per second
@@ -197,7 +197,7 @@ move_player :: proc(x, y: f64)
 
 get_delta_motion :: proc(speed: f64) -> f64
 {
-	return speed * (f64(TARGET_DELTA_TIME) / 1000)
+	return speed * (TARGET_DELTA_TIME / 1000)
 }
 
 get_time :: proc() -> f64
