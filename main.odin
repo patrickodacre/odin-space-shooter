@@ -87,6 +87,7 @@ main :: proc()
 		game.right = state[SDL.Scancode.D] > 0
 		game.up = state[SDL.Scancode.W] > 0
 		game.down = state[SDL.Scancode.S] > 0
+		game.fire = state[SDL.Scancode.SPACE] > 0
 
 		// 2. Handle any input events :: quit, pause, fire weapons?
 		if SDL.PollEvent(&event)
@@ -106,19 +107,8 @@ main :: proc()
 				{
 					case .ESCAPE:
 						break game_loop
-					case .SPACE:
-						game.fire = true
 				}
 
-			}
-
-			if event.type == SDL.EventType.KEYUP
-			{
-				#partial switch event.key.keysym.scancode
-				{
-					case .SPACE:
-						game.fire = false
-				}
 			}
 		}
 

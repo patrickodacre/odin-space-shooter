@@ -49,30 +49,9 @@ Each time the player hits the spacebar, we'll fire our laser.
 
 ```odin
 
-if event.type == SDL.EventType.KEYDOWN
-{
-	#partial switch event.key.keysym.scancode
-	{
-		case .ESCAPE:
-			break game_loop
-		case .SPACE:
-			game.fire = true
-	}
-
-}
-
-if event.type == SDL.EventType.KEYUP
-{
-	#partial switch event.key.keysym.scancode
-	{
-		case .SPACE:
-			game.fire = false
-	}
-}
+game.fire = state[SDL.Scancode.SPACE] > 0
 
 ```
-
-Notice we use the `KEYDOWN` and `KEYUP` events for firing our laser instead of checking the keyboard state. Checking the keyboard state may be better if we were allowing some sort of constant fire by holding our spacebar down, but right now we're just allowing single shots. Further, I would like to implement a cooldown timer later on, and this would require acting on the `KEYDOWN` and `KEYUP` events.
 
 To enforce single shots, our laser will only fire if the health is `0`. Once fired, the laser health is reset to `1` and its position is set to just beyond the current position of the ship, so it appears to be firing directly from the ship.
 
