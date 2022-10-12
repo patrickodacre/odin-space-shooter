@@ -13,6 +13,7 @@ TARGET_DELTA_TIME :: 1000 / 60
 WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 PLAYER_SPEED : f64 : 500 // pixels per second
+LASER_SPEED : f64 : 700
 
 Game :: struct
 {
@@ -25,12 +26,17 @@ Game :: struct
 	right: bool,
 	up: bool,
 	down: bool,
+
+
+	laser: Entity,
+	fire: bool,
 }
 
 Entity :: struct
 {
 	tex: ^SDL.Texture,
 	dest: SDL.Rect,
+	health: int,
 }
 
 game := Game{}
@@ -58,24 +64,7 @@ main :: proc()
 	assert(game.renderer != nil, SDL.GetErrorString())
 	defer SDL.DestroyRenderer(game.renderer)
 
-	// load assets - start
-
-	player_texture := SDL_Image.LoadTexture(game.renderer, "assets/player.png")
-	assert(player_texture != nil, SDL.GetErrorString())
-
-	// init with starting position
-	destination := SDL.Rect{x = 20, y = WINDOW_HEIGHT / 2}
-	SDL.QueryTexture(player_texture, nil, nil, &destination.w, &destination.h)
-	// reduce the source size by 10x
-	destination.w /= 10
-	destination.h /= 10
-
-	game.player = Entity{
-		tex = player_texture,
-		dest = destination,
-	}
-
-	// load assets - end
+	create_entities()
 
 	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
 	start : f64
@@ -117,8 +106,19 @@ main :: proc()
 				{
 					case .ESCAPE:
 						break game_loop
+					case .SPACE:
+						game.fire = true
 				}
 
+			}
+
+			if event.type == SDL.EventType.KEYUP
+			{
+				#partial switch event.key.keysym.scancode
+				{
+					case .SPACE:
+						game.fire = false
+				}
 			}
 		}
 
@@ -126,7 +126,7 @@ main :: proc()
 		// 3. Update and Render
 
 		// update player position, etc...
-		delta_motion := PLAYER_SPEED * (f64(TARGET_DELTA_TIME) / 1000)
+		delta_motion := get_delta_motion(PLAYER_SPEED)
 
 		if game.left
 		{
@@ -151,6 +151,23 @@ main :: proc()
 		// then render the updated entity:
 		SDL.RenderCopy(game.renderer, game.player.tex, nil, &game.player.dest)
 
+		if game.fire && game.laser.health == 0
+		{
+			game.laser.dest.x = game.player.dest.x + 30
+			game.laser.dest.y = game.player.dest.y
+			game.laser.health = 1
+		}
+
+		if game.laser.dest.x > WINDOW_WIDTH
+		{
+			game.laser.health = 0
+		}
+
+		if game.laser.health > 0
+		{
+			game.laser.dest.x += i32(get_delta_motion(LASER_SPEED))
+			SDL.RenderCopy(game.renderer, game.laser.tex, nil, &game.laser.dest)
+		}
 
 
 		// ... end LOOP code
@@ -188,7 +205,48 @@ move_player :: proc(x, y: f64)
 	game.player.dest.y = clamp(game.player.dest.y + i32(y), 0, WINDOW_HEIGHT - game.player.dest.h)
 }
 
+get_delta_motion :: proc(speed: f64) -> f64
+{
+	return speed * (f64(TARGET_DELTA_TIME) / 1000)
+}
+
 get_time :: proc() -> f64
 {
 	return f64(SDL.GetPerformanceCounter()) * 1000 / game.perf_frequency
 }
+
+create_entities :: proc()
+{
+
+	// player
+	player_texture := SDL_Image.LoadTexture(game.renderer, "assets/player.png")
+	assert(player_texture != nil, SDL.GetErrorString())
+
+	// init with starting position
+	destination := SDL.Rect{x = 20, y = WINDOW_HEIGHT / 2}
+	SDL.QueryTexture(player_texture, nil, nil, &destination.w, &destination.h)
+	// reduce the source size by 10x
+	destination.w /= 10
+	destination.h /= 10
+
+	game.player = Entity{
+		tex = player_texture,
+		dest = destination,
+		health = 10,
+	}
+
+	// laser
+	laser_texture := SDL_Image.LoadTexture(game.renderer, "assets/bullet_red_2.png")
+	assert(laser_texture != nil, SDL.GetErrorString())
+	SDL.QueryTexture(laser_texture, nil, nil, &destination.w, &destination.h)
+	destination.w /= 3
+	destination.h /= 3
+
+	game.laser = Entity{
+		tex = laser_texture,
+		dest = destination,
+		health = 0,
+	}
+
+}
+
