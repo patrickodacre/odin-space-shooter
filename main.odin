@@ -5,6 +5,7 @@ package game
 import "core:fmt"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
+import "core:math/rand"
 
 // constants
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN
@@ -16,6 +17,10 @@ PLAYER_SPEED : f64 : 500 // pixels per second
 LASER_SPEED : f64 : 700
 LASER_COOLDOWN_TIMER : f64 : 50
 NUM_OF_LASERS :: 100
+
+DRONE_SPEED : f64 : 700
+DRONE_SPAWN_COOLDOWN_TIMER : f64 : 700
+NUM_OF_DRONES :: 10
 
 Game :: struct
 {
@@ -35,11 +40,17 @@ Game :: struct
 	lasers: [NUM_OF_LASERS]Entity,
 	fire: bool,
 	laser_cooldown : f64,
+
+	drone_tex: ^SDL.Texture,
+	drones: [NUM_OF_DRONES]Entity,
+	drone_spawn_cooldown: f64,
 }
 
 Entity :: struct
 {
 	dest: SDL.Rect,
+	dx: f64,
+	dy: f64,
 }
 
 game := Game{}
@@ -119,31 +130,31 @@ main :: proc()
 		// 3. Update and Render
 
 		// update player position, etc...
-		delta_motion := get_delta_motion(PLAYER_SPEED)
+		delta_motion_x := get_delta_motion(game.player.dx)
+		delta_motion_y := get_delta_motion(game.player.dy)
 
 		if game.left
 		{
-			move_player(-delta_motion, 0)
+			move_player(-delta_motion_x, 0)
 		}
 
 		if game.right
 		{
-			move_player(delta_motion, 0)
+			move_player(delta_motion_x, 0)
 		}
 
 		if game.up
 		{
-			move_player(0, -delta_motion)
+			move_player(0, -delta_motion_y)
 		}
 
 		if game.down
 		{
-			move_player(0, delta_motion)
+			move_player(0, delta_motion_y)
 		}
 
 		// then render the updated entity:
 		SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
-
 
 		// FIRE LASERS
 		if game.fire && !(game.laser_cooldown > 0)
@@ -169,14 +180,39 @@ main :: proc()
 		{
 			if l.dest.x < WINDOW_WIDTH
 			{
-				l.dest.x += i32(get_delta_motion(LASER_SPEED))
+				l.dest.x += i32(get_delta_motion(l.dx))
 				SDL.RenderCopy(game.renderer, game.laser_tex, nil, &l.dest)
 			}
 		}
 
+		// Spawn Drones
+		for drone, idx in &game.drones
+		{
 
-		// decrement our cooldown
-		game.laser_cooldown -= LASER_SPEED * (TARGET_DELTA_TIME / 1000)
+			if drone.dest.x <= 0 && !(game.drone_spawn_cooldown > 0)
+			{
+				drone.dest.x = WINDOW_WIDTH
+				drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
+
+				game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
+			}
+
+			steps := i32(get_delta_motion(drone.dx))
+			drone.dest.x -= steps
+
+			if drone.dest.x > 0
+			{
+				SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
+			}
+
+		}
+
+
+		// TIMERS
+		game.laser_cooldown -= get_delta_motion(LASER_SPEED)
+		game.drone_spawn_cooldown -= get_delta_motion(DRONE_SPEED)
+
+
 
 		// ... end LOOP code
 
@@ -240,12 +276,14 @@ create_entities :: proc()
 	game.player_tex = player_texture
 	game.player = Entity{
 		dest = destination,
+		dx = PLAYER_SPEED,
+		dy = PLAYER_SPEED,
 	}
 
 	laser_texture := SDL_Image.LoadTexture(game.renderer, "assets/bullet_red_2.png")
 	assert(laser_texture != nil, SDL.GetErrorString())
 	laser_w : i32
-	laser_h :i32
+	laser_h : i32
 	SDL.QueryTexture(laser_texture, nil, nil, &laser_w, &laser_h)
 
 	game.laser_tex = laser_texture
@@ -260,6 +298,39 @@ create_entities :: proc()
 
 		game.lasers[index] = Entity{
 			dest = destination,
+			dx = LASER_SPEED,
+			dy = LASER_SPEED,
+		}
+	}
+
+
+	// drones
+	drone_texture := SDL_Image.LoadTexture(game.renderer, "assets/drone_1.png")
+	assert(drone_texture != nil, SDL.GetErrorString())
+	drone_w : i32
+	drone_h : i32
+	SDL.QueryTexture(drone_texture, nil, nil, &drone_w, &drone_h)
+
+	game.drone_tex = drone_texture
+
+	for index in 0..=(NUM_OF_DRONES - 1)
+	{
+		destination := SDL.Rect{
+			x = -(drone_w),
+			y = 0,
+			w = drone_w / 5,
+			h = drone_h / 5,
+		}
+
+		// randomize speed to make things more interesting
+		max := DRONE_SPEED * 1.2
+		min := DRONE_SPEED * 0.5
+		random_speed := rand.float64_range(min, max)
+
+		game.drones[index] = Entity{
+			dest = destination,
+			dx = random_speed,
+			dy = random_speed,
 		}
 	}
 
