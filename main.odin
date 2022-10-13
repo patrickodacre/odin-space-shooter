@@ -73,7 +73,6 @@ main :: proc()
 	assert(window != nil, SDL.GetErrorString())
 	defer SDL.DestroyWindow(window)
 
-	// Must not do VSync because we run the tick loop on the same thread as rendering.
 	game.renderer = SDL.CreateRenderer(window, -1, RENDER_FLAGS)
 	assert(game.renderer != nil, SDL.GetErrorString())
 	defer SDL.DestroyRenderer(game.renderer)
