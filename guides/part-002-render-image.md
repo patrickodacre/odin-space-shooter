@@ -1,6 +1,6 @@
 # Part 2 :: Rendering an Image
 
-* [YouTube Video]()
+* [YouTube Video](https://www.youtube.com/watch?v=gtzIZZazuG0)
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Image Library](https://wiki.libsdl.org/SDL_image/CategoryAPI)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)
