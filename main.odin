@@ -159,7 +159,7 @@ main :: proc()
 		if game.fire && !(game.laser_cooldown > 0)
 		{
 			// find a laser:
-			reload : for l in &game.lasers
+			fire : for l in &game.lasers
 			{
 				// find the first one available
 				if l.dest.x > WINDOW_WIDTH
@@ -170,22 +170,14 @@ main :: proc()
 					// reset the cooldown to prevent firing too rapidly
 					game.laser_cooldown = LASER_COOLDOWN_TIMER
 
-					break reload
+					break fire
 				}
 			}
 		}
 
-		for l in &game.lasers
-		{
-			if l.dest.x < WINDOW_WIDTH
-			{
-				l.dest.x += i32(get_delta_motion(l.dx))
-				SDL.RenderCopy(game.renderer, game.laser_tex, nil, &l.dest)
-			}
-		}
 
 		// Spawn Drones
-		for drone, idx in &game.drones
+		respawn : for drone in &game.drones
 		{
 
 			if drone.dest.x <= 0 && !(game.drone_spawn_cooldown > 0)
@@ -194,13 +186,69 @@ main :: proc()
 				drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
 
 				game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
+
+				break respawn
+			}
+		}
+
+		// Check collisions and render lasers
+		for l in &game.lasers
+		{
+			// lasers offscreen to the RIGHT are no longer in flight
+			if l.dest.x > WINDOW_WIDTH
+			{
+				continue
 			}
 
-			steps := i32(get_delta_motion(drone.dx))
-			drone.dest.x -= steps
+			bounds_y_top := l.dest.y
+			bounds_y_bottom := l.dest.y + l.dest.h
+			bounds_x_right := l.dest.x + l.dest.w
+
+			detect_collision : for drone in &game.drones
+			{
+
+				// drones offscreen to the LEFT are no longer in flight
+				if drone.dest.x < 0
+				{
+					continue
+				}
+
+				// drone is hit if
+				// direct hit OR
+				// top of drone is hit OR
+				// bottom of drone is hit OR
+				// AND
+				// the front of the drone overlaps
+				// with the front 30 pixels of the laser
+				if ((drone.dest.y >= bounds_y_top &&
+					drone.dest.y <= bounds_y_bottom) ||
+					(drone.dest.y + drone.dest.h >= bounds_y_top &&
+					drone.dest.y + drone.dest.h <= bounds_y_bottom)) &&
+					drone.dest.x <= bounds_x_right &&
+					drone.dest.x >= bounds_x_right - (l.dest.w / 2)
+				{
+					// kill drone
+					drone.dest.x = -1000
+					drone.dest.y = -1000
+
+					// kill laser
+					l.dest.x = WINDOW_WIDTH + 1000
+
+					break detect_collision
+				}
+
+			}
+
+			l.dest.x += i32(get_delta_motion(l.dx))
+			SDL.RenderCopy(game.renderer, game.laser_tex, nil, &l.dest)
+		}
+
+		for drone in &game.drones
+		{
 
 			if drone.dest.x > 0
 			{
+				drone.dest.x -= i32(get_delta_motion(drone.dx))
 				SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
 			}
 
