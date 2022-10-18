@@ -11,15 +11,12 @@ There are numerous ways to handle keyboard input for player movement.
 The easiest method I have found so far consists of the following parts:
 
 1. SDL.GetKeyboardState() or SDL.PollEvent() for KEYDOWN / KEYUP events
-2. (Delta Time or Enforced Frame Rate) * target_pixels_per_second
+2. delta_time OR TARGET_DELTA_TIME * target_pixels_per_second
 
 ## SDL.GetKeyboardState()
 
 This function allows us to check which keys on the keyboard are pressed. In our code we set 4 booleans based on the state of the 4 movement keys we're interested in -- WASD.
 
-The other way to set these boolean flags is to set them to `true` on the appropriate `KEYDOWN` event and `false` on the corresponding `KEYUP` event. `KEYDOWN` means the key has been pressed. `KEYUP` means the key has been released.
-
-This second method, though, requires us to also check if the `KEYDOWN` or `KEYUP` event is either a repeated event, or the initial pressing / releasing of that key. If we do not distinguish between the two we could get some strange behavior as we poll the event queue.
 
 ```odin
 
@@ -30,43 +27,41 @@ game.right = state[SDL.Scancode.D] > 0
 game.up = state[SDL.Scancode.W] > 0
 game.down = state[SDL.Scancode.S] > 0
 
-// versus ...
+```
+
+The other way to set these boolean flags is to set them to `true` on the appropriate `KEYDOWN` event and `false` on the corresponding `KEYUP` event. `KEYDOWN` means the key has been pressed. `KEYUP` means the key has been released.
+
+```odin
 
 if event.type == SDL.EventType.KEYDOWN
 {
-	// not repeated
-	if event.repeat == 0
+	if event.key.keysym.scancode == SDL.Scancode.A
 	{
-
-		if event.key.keysym.scancode == SDL.Scancode.A
-		{
-			game.left = true
-		}
-		/// ...
+		game.left = true
 	}
+	/// ...
 }
 
 if event.type == SDL.EventType.KEYUP
 {
-	// not repeated
-	if event.repeat == 0
+	if event.key.keysym.scancode == SDL.Scancode.A
 	{
-
-		if event.key.keysym.scancode == SDL.Scancode.A
-		{
-			game.left = false
-		}
-		/// ...
+		game.left = false
 	}
+	/// ...
 }
 
 ```
 
-I think you'll agree that checking the keyboard state is much nicer to look at. This second option is too verbose for what we need.
+I prefer using `SDL.GetKeyboardState()` for movement, and the `KEYDOWN` and `KEYUP` events for other things like firing weapons, jumping, etc.
 
 ## delta_time and Delta Motion
 
-Delta Motion is the incremental movement calculated for the present frame based on the time it took to complete the previous frame -- the delta time. In practice, this delta time is multiplied by the desired travel distance measured in pixels per second. This ensures that movement doesn't speed up or slow down when the frame rate changes from machine to machine.
+Delta Motion is the incremental movement calculated for the present frame based on the time it took to complete the previous frame -- the delta time.
+
+In practice, this delta time is multiplied by the desired travel distance measured in pixels per second. This ensures that movement doesn't speed up or slow down when the frame rate changes from machine to machine.
+
+With our game, though, we are enforcing a frame rate of 60 FPS. We won't allow for variable frame times. Nevertheless, we'll still use our target delta_time to calculate movement distances, because we want our movements to scale properly if we decide to support other frame rates in the future.
 
 ```odin
 
@@ -94,7 +89,9 @@ if game.down
 
 ```
 
-I would also like to point out a handy Odin function for ensure the player doesn't move off screen:
+Notice, we're careful to cast our `TARGET_DELTA_TIME` to a float _before_ dividing by 1000 to get our delta_time in seconds.
+
+I would also like to point out a handy Odin function to ensure the player doesn't move off screen -- `clamp()`:
 
 ```odin
 
@@ -106,13 +103,11 @@ move_player :: proc(x, y: f64)
 
 ```
 
-`clamp()` returns the given value provided it is between the given min and max arguments; otherwise, it will return the min or the max value provided.
-
-In other games I've used a combination of `min()` and `max()` that work well for basic collision detection, but for now `clamp()` does a good job.
+`clamp()` returns the given value if it is between the given min and max arguments; otherwise, it will return the min or the max value as appropriate.
 
 ## SDL.RenderCopy()
 
-Once we're done updating the player position, it is time to render that player to the window. Keep in mind that we're not displaying the updated player position, yet. We're rendering the image in the background, drawing the scene that will be displayed when we next call `SDL.RenderPresent()`.
+Once we're done updating the player position, it is time to render that player to the window. Keep in mind that we're not displaying the updated player position, yet. We're rendering the image in the background / to the `back buffer`. The `back buffer` is flipped to the visible `front buffer` when we next call `SDL.RenderPresent()`.
 
 ## Odin Highlights
 
