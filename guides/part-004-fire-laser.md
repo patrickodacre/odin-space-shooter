@@ -23,6 +23,8 @@ Our Laser Entity is very similar to our main Player Entity:
 - it's not a sprite sheet but a single image
 - it's a little large, and it needs to be scaled down
 
+You can download the laser image [here](https://github.com/patrickodacre/odin-space-shooter/blob/master/assets/bullet_red_2.png).
+
 We'll load our .png in the same way we loaded our player image, and we'll resize it to better match our main player spaceship.
 
 ```odin
