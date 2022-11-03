@@ -1,6 +1,6 @@
 # Part 3 :: Moving the Player
 
-* [YouTube Video]()
+* [YouTube Video](https://youtu.be/hY071s3M4N0)
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Scancodes](https://wiki.libsdl.org/SDL_Scancode)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)

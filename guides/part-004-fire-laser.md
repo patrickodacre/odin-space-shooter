@@ -1,6 +1,6 @@
 # Part 4 :: Firing a Laser
 
-* [YouTube Video]()
+* [YouTube Video](https://youtu.be/bn3QMNSYmgk)
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)
 * [Odin Documentation](https://github.com/odin-lang/Odin/wiki)

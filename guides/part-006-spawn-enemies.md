@@ -1,6 +1,6 @@
 # Part 6 :: Spawning Enemies
 
-* [YouTube Video]()
+* [YouTube Video](https://youtu.be/5ccarSklfVM)
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)
 * [Odin Documentation](https://github.com/odin-lang/Odin/wiki)

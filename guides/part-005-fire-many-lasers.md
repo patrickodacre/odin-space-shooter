@@ -1,6 +1,6 @@
 # Part 5 :: Firing Many Lasers
 
-* [YouTube Video]()
+* [YouTube Video](https://youtu.be/lw2lde4xN9w)
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)
 * [Odin Documentation](https://github.com/odin-lang/Odin/wiki)
