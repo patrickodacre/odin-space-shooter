@@ -51,6 +51,7 @@ Entity :: struct
 	dest: SDL.Rect,
 	dx: f64,
 	dy: f64,
+	health : int,
 }
 
 game := Game{}
@@ -159,14 +160,15 @@ main :: proc()
 		if game.fire && !(game.laser_cooldown > 0)
 		{
 			// find a laser:
-			fire : for l in &game.lasers
+			fire : for laser in &game.lasers
 			{
 				// find the first one available
-				if l.dest.x > WINDOW_WIDTH
+				if laser.health == 0
 				{
 
-					l.dest.x = game.player.dest.x + 20
-					l.dest.y = game.player.dest.y
+					laser.dest.x = game.player.dest.x + 20
+					laser.dest.y = game.player.dest.y
+					laser.health = 1
 					// reset the cooldown to prevent firing too rapidly
 					game.laser_cooldown = LASER_COOLDOWN_TIMER
 
@@ -175,15 +177,15 @@ main :: proc()
 			}
 		}
 
-
 		// Spawn Drones
-		respawn : for drone in &game.drones
+		respawn : for drone, idx in &game.drones
 		{
 
-			if drone.dest.x <= 0 && !(game.drone_spawn_cooldown > 0)
+			if drone.health == 0 && !(game.drone_spawn_cooldown > 0)
 			{
 				drone.dest.x = WINDOW_WIDTH
 				drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
+				drone.health = 1
 
 				game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
 
@@ -191,69 +193,59 @@ main :: proc()
 			}
 		}
 
-		// Check collisions and render lasers
-		for l in &game.lasers
+		for laser in &game.lasers
 		{
-			// lasers offscreen to the RIGHT are no longer in flight
-			if l.dest.x > WINDOW_WIDTH
+
+			if laser.health == 0
 			{
 				continue
 			}
 
-			bounds_y_top := l.dest.y
-			bounds_y_bottom := l.dest.y + l.dest.h
-			bounds_x_right := l.dest.x + l.dest.w
-
 			detect_collision : for drone in &game.drones
 			{
-
-				// drones offscreen to the LEFT are no longer in flight
-				if drone.dest.x < 0
+				if drone.health == 0
 				{
 					continue
 				}
 
-				// drone is hit if
-				// direct hit OR
-				// top of drone is hit OR
-				// bottom of drone is hit OR
-				// AND
-				// the front of the drone overlaps
-				// with the front 30 pixels of the laser
-				if ((drone.dest.y >= bounds_y_top &&
-					drone.dest.y <= bounds_y_bottom) ||
-					(drone.dest.y + drone.dest.h >= bounds_y_top &&
-					drone.dest.y + drone.dest.h <= bounds_y_bottom)) &&
-					drone.dest.x <= bounds_x_right &&
-					drone.dest.x >= bounds_x_right - (l.dest.w / 2)
-				{
-					// kill drone
-					drone.dest.x = -1000
-					drone.dest.y = -1000
+				hit := collision(
+					laser.dest.x,
+					laser.dest.y,
+					laser.dest.w,
+					laser.dest.h,
 
-					// kill laser
-					l.dest.x = WINDOW_WIDTH + 1000
+					drone.dest.x,
+					drone.dest.y,
+					drone.dest.w,
+					drone.dest.h
+					)
+
+				if hit
+				{
+
+					drone.health = 0
+					laser.health = 0
 
 					break detect_collision
 				}
-
 			}
 
-			l.dest.x += i32(get_delta_motion(l.dx))
-			SDL.RenderCopy(game.renderer, game.laser_tex, nil, &l.dest)
+			if laser.health > 0
+			{
+				laser.dest.x += i32(get_delta_motion(laser.dx))
+				SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
+			}
 		}
+
 
 		for drone in &game.drones
 		{
-
-			if drone.dest.x > 0
+			if drone.health > 0
 			{
 				drone.dest.x -= i32(get_delta_motion(drone.dx))
 				SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
 			}
-
 		}
-
 
 		// TIMERS
 		game.laser_cooldown -= get_delta_motion(LASER_SPEED)
@@ -306,6 +298,11 @@ get_time :: proc() -> f64
 	return f64(SDL.GetPerformanceCounter()) * 1000 / game.perf_frequency
 }
 
+collision :: proc(x1, y1, w1, h1, x2, y2, w2, h2: i32) -> bool
+{
+	return (max(x1, x2) < min(x1 + w1, x2 + w2)) && (max(y1, y2) < min(y1 + h1, y2 + h2))
+}
+
 create_entities :: proc()
 {
 
@@ -347,6 +344,7 @@ create_entities :: proc()
 			dest = destination,
 			dx = LASER_SPEED,
 			dy = LASER_SPEED,
+			health = 0,
 		}
 	}
 
@@ -378,6 +376,7 @@ create_entities :: proc()
 			dest = destination,
 			dx = random_speed,
 			dy = random_speed,
+			health = 0,
 		}
 	}
 
