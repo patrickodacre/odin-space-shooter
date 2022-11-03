@@ -136,7 +136,7 @@ Why?
 
 We're creating 100 lasers, and there is no need to create 100 textures -- only one texture is needed.
 
-We also removed our `health` field from the `Entity` struct. We can track laser lifetimes by checking their `x` position.
+We also removed our `health` field from the `Entity` struct. We can track laser lifetimes by checking their `x` position. (NOTE :: I went back to using Health later on. It was better.)
 
 ## Reloading our Laser Cannon
 
