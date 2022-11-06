@@ -6,6 +6,7 @@ import "core:fmt"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
 import "core:math/rand"
+import "core:strings"
 
 // constants
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN
@@ -19,26 +20,34 @@ HITBOXES_VISIBLE :: false
 PLAYER_SPEED : f64 : 500 // pixels per second
 LASER_SPEED : f64 : 700
 LASER_COOLDOWN_TIMER : f64 : 50
-LASER_COOLDOWN_TICK :: LASER_SPEED * (TARGET_DELTA_TIME / 1000)
 NUM_OF_LASERS :: 100
 
 DRONE_SPEED : f64 : 700
 DRONE_SPAWN_COOLDOWN_TIMER : f64 : 700
-DRONE_SPAWN_COOLDOWN_TICK :: DRONE_SPEED * (TARGET_DELTA_TIME / 1000)
 NUM_OF_DRONES :: 10
 NUM_OF_DRONE_LASERS :: 5
 DRONE_LASER_SPEED : f64 : 200
 DRONE_LASER_COOLDOWN : f64 : 1000
-DRONE_LASER_COOLDOWN_TICK :: DRONE_LASER_SPEED * (TARGET_DELTA_TIME / 1000)
 DRONE_LASER_COOLDOWN_MASTER : f64 : 300 // stagger lasers a bit
 
 STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * 60 * 3 // 3 seconds
+
+FRAME_TIMER : f64 : 50
 
 Game :: struct
 {
 	stage_reset_timer: f64,
 	perf_frequency: f64,
 	renderer: ^SDL.Renderer,
+
+	// background
+	bg_tex: ^SDL.Texture,
+	bg_1: Background,
+	bg_2: Background,
+	bg_3: Background,
+	bg_4: Background,
+	bg_5: Background,
+	bg_6: Background,
 
 	// player
 	player: Entity,
@@ -60,6 +69,25 @@ Game :: struct
 	drone_laser_tex: ^SDL.Texture,
 	drone_lasers: [NUM_OF_DRONE_LASERS]Entity,
 	drone_laser_cooldown : f64,
+
+	effect_explosion_frames: [11]^SDL.Texture,
+	explosions: [NUM_OF_DRONES * 2]Explosion,
+}
+
+Background :: struct
+{
+	dest: SDL.Rect,
+	dx: f64,
+}
+
+Explosion :: struct
+{
+	source: SDL.Rect,
+	dest: SDL.Rect,
+	dx: f64,
+	frame: int,
+	frame_timer: f64,
+	is_active: bool,
 }
 
 Entity :: struct
@@ -138,6 +166,12 @@ main :: proc()
 				{
 					case .ESCAPE:
 						break game_loop
+					case .L:
+						fmt.println("Log")
+						fmt.println(game.effect_explosion_frames[0])
+						fmt.println(game.explosions)
+					case .C:
+						game.bg_tex = SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
 				}
 
 			}
@@ -145,6 +179,41 @@ main :: proc()
 
 
 		// 3. Update and Render
+
+		// BGs are 1024, and our WINDOW_WIDTH is 1600. I use 3 bgs
+		// to make sure that we're always filling the screen
+		// BACKGROUND -- must be first so everything else is on TOP
+		if (game.bg_1.dest.x + game.bg_1.dest.w < 0)
+		{
+			game.bg_1.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
+			game.bg_4.dest.x = game.bg_6.dest.x + game.bg_6.dest.w
+		}
+
+		if (game.bg_2.dest.x + game.bg_2.dest.w < 0)
+		{
+			game.bg_2.dest.x = game.bg_1.dest.x + game.bg_1.dest.w
+			game.bg_5.dest.x = game.bg_4.dest.x + game.bg_4.dest.w
+		}
+
+		if (game.bg_3.dest.x + game.bg_3.dest.w < 0)
+		{
+			game.bg_3.dest.x = game.bg_2.dest.x + game.bg_2.dest.w
+			game.bg_6.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
+		}
+
+		game.bg_1.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_1.dest)
+		game.bg_2.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_2.dest)
+		game.bg_3.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_3.dest)
+		game.bg_4.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_4.dest)
+		game.bg_5.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_5.dest)
+		game.bg_6.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_6.dest)
+
 
 
 		// Based on the positions that are currently visible to the Player...
@@ -191,11 +260,13 @@ main :: proc()
 					drone.health = 0
 					laser.health = 0
 
+			    	explode(&drone)
+
 					break detect_collision
 				}
 			}
 
-			laser.dest.x += i32(laser.dx)
+			laser.dest.x += i32(get_delta_motion(laser.dx))
 
 			// reset laser if it's offscreen
 			if laser.dest.x > WINDOW_WIDTH
@@ -235,10 +306,12 @@ main :: proc()
 			{
 				laser.health = 0
 				game.player.health = 0
+
+		    	explode(&game.player)
 			}
 
-			laser.dest.x += i32(laser.dx)
-			laser.dest.y += i32(laser.dy)
+			laser.dest.x += i32(get_delta_motion(laser.dx))
+			laser.dest.y += i32(get_delta_motion(laser.dy))
 
 			// reset laser if it's offscreen
 			// checking x and y b/c these drone
@@ -274,7 +347,7 @@ main :: proc()
 				continue
 			}
 
-			drone.dest.x -= i32(drone.dx)
+			drone.dest.x -= i32(get_delta_motion(drone.dx))
 
 			if drone.dest.x < 0
 			{
@@ -317,8 +390,8 @@ main :: proc()
 							game.player.dest.y
 							)
 
-						laser.dx = new_dx * get_delta_motion(DRONE_LASER_SPEED)
-						laser.dy = new_dy * get_delta_motion(DRONE_LASER_SPEED)
+						laser.dx = new_dx * DRONE_LASER_SPEED
+						laser.dy = new_dy * DRONE_LASER_SPEED
 
 						// reset the cooldown to prevent firing too rapidly
 						drone.ready = DRONE_LASER_COOLDOWN
@@ -332,15 +405,16 @@ main :: proc()
 			// decrement our 'ready' timer
 			// to help distribute lasers more evenly between
 			// the active drones
-			drone.ready -= drone.dx
+			// w/o 'ready' one drone could end up firing all the lasers
+			drone.ready -= get_delta_motion(drone.dx)
 		}
 
 		// update player position AFTER we detect any collisions with drone lasers
 		if game.player.health > 0
 		{
 
-			delta_motion_x := game.player.dx
-			delta_motion_y := game.player.dy
+			delta_motion_x := get_delta_motion(game.player.dx)
+			delta_motion_y := get_delta_motion(game.player.dy)
 
 			if game.left
 			{
@@ -376,6 +450,39 @@ main :: proc()
 			{
 				reset_stage()
 			}
+		}
+
+		// Explosions
+		// x := game.explosions[0]
+		// t := game.effect_explosion_frames[x.frame]
+		// fmt.println(x.dest)
+		// SDL.RenderCopy(game.renderer, t, nil, &x.dest)
+
+		for x in &game.explosions
+		{
+			if x.frame > 10
+			{
+				x.is_active = false
+			}
+
+			if x.is_active
+			{
+
+				t := game.effect_explosion_frames[x.frame]
+				x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+				SDL.RenderCopy(game.renderer, t, nil, &x.dest)
+
+				x.frame_timer -= 10
+
+				// switch frames
+				if x.frame_timer < 0
+				{
+					// restart timer
+					x.frame_timer = FRAME_TIMER
+					x.frame += 1
+				}
+			}
+
 		}
 
 		// FIRE PLAYER LASERS
@@ -425,9 +532,9 @@ main :: proc()
 
 
 		// TIMERS
-		game.laser_cooldown -= LASER_COOLDOWN_TICK
-		game.drone_spawn_cooldown -= DRONE_SPAWN_COOLDOWN_TICK
-		game.drone_laser_cooldown -= DRONE_LASER_COOLDOWN_TICK
+		game.laser_cooldown -= get_delta_motion(LASER_SPEED)
+		game.drone_spawn_cooldown -= get_delta_motion(DRONE_SPEED)
+		game.drone_laser_cooldown -= get_delta_motion(DRONE_SPEED)
 
 		// ... end LOOP code
 
@@ -542,8 +649,8 @@ create_entities :: proc()
 	game.player_tex = player_texture
 	game.player = Entity{
 		dest = destination,
-		dx = get_delta_motion(PLAYER_SPEED),
-		dy = get_delta_motion(PLAYER_SPEED),
+		dx = PLAYER_SPEED,
+		dy = PLAYER_SPEED,
 		health = 1,
 	}
 
@@ -566,8 +673,8 @@ create_entities :: proc()
 		game.lasers[index] = Entity{
 			dest = destination,
 			health = 0,
-			dx = get_delta_motion(LASER_SPEED),
-			dy = get_delta_motion(LASER_SPEED),
+			dx = LASER_SPEED,
+			dy = LASER_SPEED,
 		}
 	}
 
@@ -598,8 +705,8 @@ create_entities :: proc()
 		game.drones[index] = Entity{
 			dest = destination,
 			health = 0,
-			dx = get_delta_motion(random_speed),
-			dy = get_delta_motion(random_speed),
+			dx = random_speed,
+			dy = random_speed,
 			ready = DRONE_LASER_COOLDOWN,
 		}
 	}
@@ -611,8 +718,6 @@ create_entities :: proc()
 	drone_laser_h : i32
 	SDL.QueryTexture(game.drone_laser_tex, nil, nil, &drone_laser_w, &drone_laser_h)
 
-	delta := get_delta_motion(DRONE_LASER_SPEED)
-
 	for _, idx in 1..=NUM_OF_DRONE_LASERS
 	{
 
@@ -620,15 +725,140 @@ create_entities :: proc()
 			dest = SDL.Rect{
 				x = -100,
 				y = -100,
-				// w = drone_laser_w,
-				// h = drone_laser_h,
 				w = drone_laser_w / 8,
 				h = drone_laser_h / 6,
 			},
-			dx = get_delta_motion(DRONE_LASER_SPEED),
-			dy = get_delta_motion(DRONE_LASER_SPEED),
+			dx = DRONE_LASER_SPEED,
+			dy = DRONE_LASER_SPEED,
 			health = 0,
 		}
 	}
+
+
+	// Explosions
+	for i in 0..<11
+	{
+		// aprintf needs to be freed, as the string is allocated with the current context
+		// path := cstring(raw_data(fmt.aprintf("assets/explosion_{}.png", i + 1)))
+
+		// this was recommended by Bill:
+		path := caprintf("assets/explosion_{}.png", i + 1)
+		game.effect_explosion_frames[i] = SDL_Image.LoadTexture(game.renderer, path)
+		assert(game.effect_explosion_frames[i] != nil, SDL.GetErrorString())
+	}
+
+	// explosions are animated, and don't clear right away,
+	// so we estimate needing * 2 explosions
+	for index in 0..<(NUM_OF_DRONES * 2)
+	{
+
+		game.explosions[index] = Explosion{
+			source = SDL.Rect{
+				// 178 / 272
+				x = 178,
+				y = 178,
+				w = 100,
+				h = 100,
+			},
+			dest = SDL.Rect{
+				x = 100,
+				y = 100,
+				w = 453 / 3,
+				h = 453 / 3,
+			},
+			// all explosions start with the FIRST sprite
+			frame = 0,
+			is_active = false,
+		}
+	}
+
+	// Background
+	game.bg_tex = SDL_Image.LoadTexture(game.renderer, "assets/bg_purple_1.png")
+	assert(game.bg_tex != nil, SDL.GetErrorString())
+	bg_w : i32
+	bg_h : i32
+	SDL.QueryTexture(game.bg_tex, nil, nil, &bg_w, &bg_h)
+
+	game.bg_1 = Background{
+		dest = SDL.Rect{
+			x = 0,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_2 = Background{
+		dest = SDL.Rect{
+			x = bg_w,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_3 = Background{
+		dest = SDL.Rect{
+			x = bg_w * 2,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_4 = Background{
+		dest = SDL.Rect{
+			x = 0,
+			y = bg_h,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_5 = Background{
+		dest = SDL.Rect{
+			x = bg_w,
+			y = bg_h,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_6 = Background{
+		dest = SDL.Rect{
+			x = bg_w * 2,
+			y = bg_h,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+
 }
 
+caprintf :: proc(format: string, args: ..any) -> cstring {
+    str: strings.Builder
+    strings.builder_init(&str)
+    fmt.sbprintf(&str, format, ..args)
+    strings.write_byte(&str, 0)
+    s := strings.to_string(str)
+    return cstring(raw_data(s))
+}
+
+explode :: proc(e: ^Entity)
+{
+	// find a free Explosion entity
+	find_explosion : for x in &game.explosions
+	{
+		if !x.is_active
+		{
+			x.dest.x = e.dest.x - (x.dest.w / 2)
+			x.dest.y = e.dest.y - (x.dest.h / 2)
+			x.dx = e.dx
+			x.is_active = true
+			x.frame = 0
+			x.frame_timer = FRAME_TIMER
+
+			break find_explosion
+		}
+	}
+
+
+}
