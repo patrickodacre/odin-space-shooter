@@ -4,6 +4,7 @@ import "core:fmt"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
 import "core:math/rand"
+import "core:strings"
 
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN | SDL.WINDOW_RESIZABLE
 RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
@@ -18,16 +19,18 @@ LASER_SPEED : f64 : 500
 LASER_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND / 2) // 1/2 second
 NUM_OF_LASERS :: 100
 
-DRONE_SPEED : f64 : 200
+DRONE_SPEED : f64 : 500
 DRONE_SPAWN_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1 // 1 sec
 NUM_OF_DRONES :: 5
 
-DRONE_LASER_SPEED : f64 : 300
+DRONE_LASER_SPEED : f64 : DRONE_SPEED + 30
 DRONE_LASER_COOLDOWN_TIMER_SINGLE : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2)
 DRONE_LASER_COOLDOWN_TIMER_ALL : f64 : TARGET_DELTA_TIME * 5
 NUM_OF_DRONE_LASERS :: 2
 
 STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
+
+FRAME_TIMER : f64 : 50
 
 Game :: struct
 {
@@ -35,6 +38,15 @@ Game :: struct
 	stage_reset_timer: f64,
 	perf_frequency: f64,
 	renderer: ^SDL.Renderer,
+
+	// background
+	bg_tex: ^SDL.Texture,
+	bg_1: Background,
+	bg_2: Background,
+	bg_3: Background,
+	bg_4: Background,
+	bg_5: Background,
+	bg_6: Background,
 
 	// player
 	player: Entity,
@@ -58,6 +70,24 @@ Game :: struct
 	drone_lasers: [NUM_OF_DRONE_LASERS]Entity,
 	drone_laser_cooldown : f64,
 
+	effect_explosion_frames: [11]^SDL.Texture,
+	explosions: [NUM_OF_DRONES * 2]Explosion,
+}
+
+Background :: struct
+{
+	dest: SDL.Rect,
+	dx: f64,
+}
+
+Explosion :: struct
+{
+	source: SDL.Rect,
+	dest: SDL.Rect,
+	dx: f64,
+	frame: int,
+	frame_timer: f64,
+	is_active: bool,
 }
 
 Entity :: struct
@@ -139,6 +169,8 @@ main :: proc()
 				{
 					case .ESCAPE:
 						break game_loop
+					case .C:
+						game.bg_tex = SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
 				}
 
 			}
@@ -146,6 +178,41 @@ main :: proc()
 
 
 		// 3. Update and Render
+
+		// BGs are 1024, and our WINDOW_WIDTH is 1600. I use 3 bgs
+		// to make sure that we're always filling the screen
+		// BACKGROUND -- must be first so everything else is on TOP
+		if (game.bg_1.dest.x + game.bg_1.dest.w < 0)
+		{
+			game.bg_1.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
+			game.bg_4.dest.x = game.bg_6.dest.x + game.bg_6.dest.w
+		}
+
+		if (game.bg_2.dest.x + game.bg_2.dest.w < 0)
+		{
+			game.bg_2.dest.x = game.bg_1.dest.x + game.bg_1.dest.w
+			game.bg_5.dest.x = game.bg_4.dest.x + game.bg_4.dest.w
+		}
+
+		if (game.bg_3.dest.x + game.bg_3.dest.w < 0)
+		{
+			game.bg_3.dest.x = game.bg_2.dest.x + game.bg_2.dest.w
+			game.bg_6.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
+		}
+
+		game.bg_1.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_1.dest)
+		game.bg_2.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_2.dest)
+		game.bg_3.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_3.dest)
+		game.bg_4.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_4.dest)
+		game.bg_5.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_5.dest)
+		game.bg_6.dest.x -= i32(get_delta_motion(200))
+		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_6.dest)
+
 
 		// Based on the positions that are currently visible to the Player...
 		// 1. Check Collisions
@@ -189,8 +256,11 @@ main :: proc()
 					drone.health = 0
 					laser.health = 0
 
+			    	explode(&drone)
+
 					break detect_collision
 				}
+
 			}
 
 			laser.dest.x += i32(get_delta_motion(laser.dx))
@@ -344,7 +414,9 @@ main :: proc()
 				// to help distribute lasers more evenly between
 				// the active drones
 				drone.ready -= TARGET_DELTA_TIME
+
 			}
+
 		}
 
 		// update player position, etc...
@@ -405,7 +477,6 @@ main :: proc()
 				}
 			}
 
-
 		}
 
 		// Player Dead
@@ -419,11 +490,39 @@ main :: proc()
 			}
 		}
 
+		// Explosions
+		for x in &game.explosions
+		{
+			if x.frame > 10
+			{
+				x.is_active = false
+			}
+
+			if x.is_active
+			{
+
+				t := game.effect_explosion_frames[x.frame]
+				x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+				SDL.RenderCopy(game.renderer, t, nil, &x.dest)
+
+				x.frame_timer -= 10
+
+				// switch frames
+				if x.frame_timer < 0
+				{
+					// restart timer
+					x.frame_timer = FRAME_TIMER
+					x.frame += 1
+				}
+			}
+
+		}
+
+
 		// TIMERS
 		game.laser_cooldown -= TARGET_DELTA_TIME
 		game.drone_spawn_cooldown -= TARGET_DELTA_TIME
 		game.drone_laser_cooldown -= TARGET_DELTA_TIME
-
 
 		// ... end LOOP code
 
@@ -619,6 +718,129 @@ create_entities :: proc()
 	}
 
 
+	// Explosions
+	for i in 0..<11
+	{
+		// aprintf needs to be freed, as the string is allocated with the current context
+		// path := cstring(raw_data(fmt.aprintf("assets/explosion_{}.png", i + 1)))
+
+		// this was recommended by Bill:
+		path := caprintf("assets/explosion_{}.png", i + 1)
+		game.effect_explosion_frames[i] = SDL_Image.LoadTexture(game.renderer, path)
+		assert(game.effect_explosion_frames[i] != nil, SDL.GetErrorString())
+	}
+
+	// explosions are animated, and don't clear right away,
+	// so we estimate needing * 2 explosions
+	for index in 0..<(NUM_OF_DRONES * 2)
+	{
+
+		game.explosions[index] = Explosion{
+			source = SDL.Rect{
+				// 178 / 272
+				x = 178,
+				y = 178,
+				w = 100,
+				h = 100,
+			},
+			dest = SDL.Rect{
+				x = 100,
+				y = 100,
+				w = 453 / 3,
+				h = 453 / 3,
+			},
+			// all explosions start with the FIRST sprite
+			frame = 0,
+			is_active = false,
+		}
+	}
+
+	// Background
+	game.bg_tex = SDL_Image.LoadTexture(game.renderer, "assets/bg_purple_1.png")
+	assert(game.bg_tex != nil, SDL.GetErrorString())
+	bg_w : i32
+	bg_h : i32
+	SDL.QueryTexture(game.bg_tex, nil, nil, &bg_w, &bg_h)
+
+	game.bg_1 = Background{
+		dest = SDL.Rect{
+			x = 0,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_2 = Background{
+		dest = SDL.Rect{
+			x = bg_w,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_3 = Background{
+		dest = SDL.Rect{
+			x = bg_w * 2,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_4 = Background{
+		dest = SDL.Rect{
+			x = 0,
+			y = bg_h,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_5 = Background{
+		dest = SDL.Rect{
+			x = bg_w,
+			y = bg_h,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
+
+	game.bg_6 = Background{
+		dest = SDL.Rect{
+			x = bg_w * 2,
+			y = bg_h,
+			w = bg_w,
+			h = bg_h,
+		}
+	}
 
 }
 
+caprintf :: proc(format: string, args: ..any) -> cstring {
+    str: strings.Builder
+    strings.builder_init(&str)
+    fmt.sbprintf(&str, format, ..args)
+    strings.write_byte(&str, 0)
+    s := strings.to_string(str)
+    return cstring(raw_data(s))
+}
+
+explode :: proc(e: ^Entity)
+{
+	// find a free Explosion entity
+	find_explosion : for x in &game.explosions
+	{
+		if !x.is_active
+		{
+			x.dest.x = e.dest.x - (x.dest.w / 2)
+			x.dest.y = e.dest.y - (x.dest.h / 2)
+			x.dx = e.dx // explode at the speed at which the destroyed entity was moving
+			x.is_active = true
+			x.frame = 0
+			x.frame_timer = FRAME_TIMER
+
+			break find_explosion
+		}
+	}
+
+
+}
