@@ -5,7 +5,7 @@ import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
 import "core:math/rand"
 
-WINDOW_FLAGS :: SDL.WINDOW_SHOWN
+WINDOW_FLAGS :: SDL.WINDOW_SHOWN | SDL.WINDOW_RESIZABLE
 RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
 FRAMES_PER_SECOND : f64 : 60
 TARGET_DELTA_TIME :: f64(1000) / FRAMES_PER_SECOND
@@ -93,6 +93,8 @@ main :: proc()
 	game.renderer = SDL.CreateRenderer(window, -1, RENDER_FLAGS)
 	assert(game.renderer != nil, SDL.GetErrorString())
 	defer SDL.DestroyRenderer(game.renderer)
+
+	SDL.RenderSetLogicalSize(game.renderer, WINDOW_WIDTH, WINDOW_HEIGHT)
 
 	reset_stage()
 
