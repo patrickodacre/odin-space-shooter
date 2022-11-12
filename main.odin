@@ -14,6 +14,8 @@ WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 HITBOXES_VISIBLE :: false
 
+BACKGROUND_SPEED :: 200
+
 PLAYER_SPEED : f64 : 250 // pixels per second
 LASER_SPEED : f64 : 500
 LASER_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND / 2) // 1/2 second
@@ -30,7 +32,8 @@ NUM_OF_DRONE_LASERS :: 2
 
 STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 
-FRAME_TIMER : f64 : 50
+// each frame of an explosion is rendered for X frames
+FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
 Game :: struct
 {
@@ -82,7 +85,6 @@ Background :: struct
 
 Explosion :: struct
 {
-	source: SDL.Rect,
 	dest: SDL.Rect,
 	dx: f64,
 	frame: int,
@@ -200,17 +202,17 @@ main :: proc()
 			game.bg_6.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
 		}
 
-		game.bg_1.dest.x -= i32(get_delta_motion(200))
+		game.bg_1.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_1.dest)
-		game.bg_2.dest.x -= i32(get_delta_motion(200))
+		game.bg_2.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_2.dest)
-		game.bg_3.dest.x -= i32(get_delta_motion(200))
+		game.bg_3.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_3.dest)
-		game.bg_4.dest.x -= i32(get_delta_motion(200))
+		game.bg_4.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_4.dest)
-		game.bg_5.dest.x -= i32(get_delta_motion(200))
+		game.bg_5.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_5.dest)
-		game.bg_6.dest.x -= i32(get_delta_motion(200))
+		game.bg_6.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_6.dest)
 
 
@@ -287,21 +289,30 @@ main :: proc()
 			}
 
 			// check collision based on previous frame's rendered position
-			hit := collision(
-				game.player.dest.x,
-				game.player.dest.y,
-				game.player.dest.w,
-				game.player.dest.h,
-				laser.dest.x,
-				laser.dest.y,
-				laser.dest.w,
-				laser.dest.h,
-				)
-
-			if hit
+			// check player health to make sure drone lasers don't explode
+			// while we're rendering our stage_reset() scenes after a player
+			// has already died.
+			if game.player.health > 0
 			{
-				laser.health = 0
-				game.player.health = 0
+				hit := collision(
+					game.player.dest.x,
+					game.player.dest.y,
+					game.player.dest.w,
+					game.player.dest.h,
+
+					laser.dest.x,
+					laser.dest.y,
+					laser.dest.w,
+					laser.dest.h,
+					)
+
+				if hit
+				{
+					laser.health = 0
+					game.player.health = 0
+
+			    	explode(&game.player)
+				}
 			}
 
 			laser.dest.x += i32(get_delta_motion(laser.dx))
@@ -363,6 +374,37 @@ main :: proc()
 
 			if drone.health > 0
 			{
+
+				// check player health to account for our 3-second transition
+				// scenes after a player dies
+				if  game.player.health > 0
+				{
+					hit := collision(
+						game.player.dest.x,
+						game.player.dest.y,
+						game.player.dest.w,
+						game.player.dest.h,
+
+						drone.dest.x,
+						drone.dest.y,
+						drone.dest.w,
+						drone.dest.h
+						)
+
+					if hit
+					{
+
+						drone.health = 0
+						game.player.health = 0
+
+				    	explode(&drone)
+				    	explode(&game.player)
+
+				    	// skip the rest of this loop so we
+				    	// don't render our drone or fire its laser
+						continue
+					}
+				}
 
 				SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
 
@@ -493,6 +535,8 @@ main :: proc()
 		// Explosions
 		for x in &game.explosions
 		{
+			// there are 11 sprites
+			// so index 10 will be our final frame
 			if x.frame > 10
 			{
 				x.is_active = false
@@ -502,16 +546,19 @@ main :: proc()
 			{
 
 				t := game.effect_explosion_frames[x.frame]
+
+				// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
 				x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+
 				SDL.RenderCopy(game.renderer, t, nil, &x.dest)
 
-				x.frame_timer -= 10
+				x.frame_timer -= TARGET_DELTA_TIME
 
 				// switch frames
 				if x.frame_timer < 0
 				{
 					// restart timer
-					x.frame_timer = FRAME_TIMER
+					x.frame_timer = FRAME_TIMER_EXPLOSIONS
 					x.frame += 1
 				}
 			}
@@ -736,13 +783,6 @@ create_entities :: proc()
 	{
 
 		game.explosions[index] = Explosion{
-			source = SDL.Rect{
-				// 178 / 272
-				x = 178,
-				y = 178,
-				w = 100,
-				h = 100,
-			},
 			dest = SDL.Rect{
 				x = 100,
 				y = 100,
@@ -762,6 +802,7 @@ create_entities :: proc()
 	bg_h : i32
 	SDL.QueryTexture(game.bg_tex, nil, nil, &bg_w, &bg_h)
 
+	// top Row of bg images
 	game.bg_1 = Background{
 		dest = SDL.Rect{
 			x = 0,
@@ -786,6 +827,7 @@ create_entities :: proc()
 		}
 	}
 
+	// BOTTOM Row of bg images
 	game.bg_4 = Background{
 		dest = SDL.Rect{
 			x = 0,
@@ -831,12 +873,14 @@ explode :: proc(e: ^Entity)
 	{
 		if !x.is_active
 		{
+			// divide by 2 so we place our explosion
+			// at the center of the destroyed entity
 			x.dest.x = e.dest.x - (x.dest.w / 2)
 			x.dest.y = e.dest.y - (x.dest.h / 2)
 			x.dx = e.dx // explode at the speed at which the destroyed entity was moving
 			x.is_active = true
 			x.frame = 0
-			x.frame_timer = FRAME_TIMER
+			x.frame_timer = FRAME_TIMER_EXPLOSIONS
 
 			break find_explosion
 		}
