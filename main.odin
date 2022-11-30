@@ -14,7 +14,7 @@ WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 HITBOXES_VISIBLE :: false
 
-BACKGROUND_SPEED :: 200
+BACKGROUND_SPEED :: 400
 
 PLAYER_SPEED : f64 : 250 // pixels per second
 LASER_SPEED : f64 : 500
@@ -35,8 +35,15 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
+Background :: enum {
+	PlainStars,
+	PurpleNebula,
+}
+
 Game :: struct
 {
+	is_invicible: bool,
+	is_paused: bool,
 
 	stage_reset_timer: f64,
 	perf_frequency: f64,
@@ -75,12 +82,27 @@ Game :: struct
 
 	effect_explosion_frames: [11]^SDL.Texture,
 	explosions: [NUM_OF_DRONES * 2]Explosion,
+
+	bg_current: Background,
+	background_textures: [Background]^SDL.Texture,
+	background_sections: [8]BackgroundSection,
+	transition_textures: [1]^SDL.Texture,
+	gateway: Gateway,
+	use_gateway: bool,
+
 }
 
-Background :: struct
+BackgroundSection :: struct
 {
+	background: Background,
 	dest: SDL.Rect,
-	dx: f64,
+}
+
+Gateway :: struct
+{
+	tex: ^SDL.Texture,
+	dest: SDL.Rect,
+	is_active: bool,
 }
 
 Explosion :: struct
@@ -102,7 +124,9 @@ Entity :: struct
 	ready: f64,
 }
 
-game := Game{}
+game := Game{
+	is_invicible = false,
+}
 
 // a proc (procedure) would be a 'function' in another language.
 main :: proc()
@@ -171,50 +195,75 @@ main :: proc()
 				{
 					case .ESCAPE:
 						break game_loop
-					case .C:
-						game.bg_tex = SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
+					case .G:
+						game.use_gateway = true
+					case .L:
+						fmt.println("log")
+					case .P:
+						game.is_paused = ! game.is_paused
 				}
 
 			}
 		}
 
+		delta_x := i32(get_delta_motion(BACKGROUND_SPEED))
 
 		// 3. Update and Render
-
-		// BGs are 1024, and our WINDOW_WIDTH is 1600. I use 3 bgs
-		// to make sure that we're always filling the screen
-		// BACKGROUND -- must be first so everything else is on TOP
-		if (game.bg_1.dest.x + game.bg_1.dest.w < 0)
+		for index in 0..<len(game.background_sections)
 		{
-			game.bg_1.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
-			game.bg_4.dest.x = game.bg_6.dest.x + game.bg_6.dest.w
+			section := &game.background_sections[index]
+
+			top_right := section.dest.x + section.dest.w
+
+			if top_right < -(section.dest.w / 2)
+			{
+				fmt.println("switching at top_right {} ", top_right)
+				next_section_index : int
+				if index < 4
+				{
+					next_section_index = index == 0 ? 3 : index - 1
+				}
+				else
+				{
+					next_section_index = index == 4 ? 7 : index - 1
+				}
+
+				next_section := &game.background_sections[next_section_index]
+
+				// position AFTER the last section in line
+				section.dest.x = (next_section.dest.x + next_section.dest.w)
+
+				fmt.println("Next x {} -- {} -> {}", index, next_section.dest.x + next_section.dest.w, section.dest.x, section.dest.x + section.dest.w)
+
+				// bg for the section offscreen to the right should be of the one before it
+				section.background = next_section.background
+
+				// unless... we're changing our bg
+				if game.use_gateway
+				{
+					game.use_gateway = false
+
+					if section.background == Background.PurpleNebula
+					{
+						section.background = Background.PlainStars
+					}
+					else
+					{
+						section.background = Background.PurpleNebula
+					}
+
+					// position our gateway
+					game.gateway.dest.x = section.dest.x - (game.gateway.dest.w / 2)
+					game.gateway.is_active = true
+				}
+
+			}
+
+			section.dest.x -= delta_x
+			tex := game.background_textures[section.background]
+			SDL.RenderCopy(game.renderer, tex, nil, &section.dest)
+
 		}
-
-		if (game.bg_2.dest.x + game.bg_2.dest.w < 0)
-		{
-			game.bg_2.dest.x = game.bg_1.dest.x + game.bg_1.dest.w
-			game.bg_5.dest.x = game.bg_4.dest.x + game.bg_4.dest.w
-		}
-
-		if (game.bg_3.dest.x + game.bg_3.dest.w < 0)
-		{
-			game.bg_3.dest.x = game.bg_2.dest.x + game.bg_2.dest.w
-			game.bg_6.dest.x = game.bg_3.dest.x + game.bg_3.dest.w
-		}
-
-		game.bg_1.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_1.dest)
-		game.bg_2.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_2.dest)
-		game.bg_3.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_3.dest)
-		game.bg_4.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_4.dest)
-		game.bg_5.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_5.dest)
-		game.bg_6.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-		SDL.RenderCopy(game.renderer, game.bg_tex, nil, &game.bg_6.dest)
-
 
 		// Based on the positions that are currently visible to the Player...
 		// 1. Check Collisions
@@ -252,7 +301,7 @@ main :: proc()
 					drone.dest.h
 					)
 
-				if hit
+				if hit && !game.is_invicible
 				{
 
 					drone.health = 0
@@ -306,7 +355,7 @@ main :: proc()
 					laser.dest.h,
 					)
 
-				if hit
+				if hit && !game.is_invicible
 				{
 					laser.health = 0
 					game.player.health = 0
@@ -315,8 +364,11 @@ main :: proc()
 				}
 			}
 
-			laser.dest.x += i32(get_delta_motion(laser.dx))
-			laser.dest.y += i32(get_delta_motion(laser.dy))
+			if !game.is_paused
+			{
+				laser.dest.x += i32(laser.dx)
+				laser.dest.y += i32(laser.dy)
+			}
 
 			// reset laser if it's offscreen
 			// checking x and y b/c these drone
@@ -391,7 +443,7 @@ main :: proc()
 						drone.dest.h
 						)
 
-					if hit
+					if hit && !game.is_invicible
 					{
 
 						drone.health = 0
@@ -438,8 +490,11 @@ main :: proc()
 								game.player.dest.y
 								)
 
-							laser.dx = new_dx * DRONE_LASER_SPEED
-							laser.dy = new_dy * DRONE_LASER_SPEED
+							if !game.is_paused
+							{
+								laser.dx = new_dx * get_delta_motion(DRONE_LASER_SPEED)
+								laser.dy = new_dy * get_delta_motion(DRONE_LASER_SPEED)
+							}
 
 							// reset the cooldown to prevent firing too rapidly
 							drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
@@ -565,6 +620,16 @@ main :: proc()
 
 		}
 
+		if game.gateway.dest.x + game.gateway.dest.w < 0
+		{
+			game.gateway.is_active = false
+		}
+
+		if game.gateway.is_active
+		{
+			game.gateway.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
+			SDL.RenderCopy(game.renderer, game.gateway.tex, nil, &game.gateway.dest)
+		}
 
 		// TIMERS
 		game.laser_cooldown -= TARGET_DELTA_TIME
@@ -626,6 +691,11 @@ calc_slope :: proc(from_x, from_y, to_x, to_y : i32) -> (f64, f64)
 }
 get_delta_motion :: proc(speed: f64) -> f64
 {
+	if game.is_paused
+	{
+		return 0
+	}
+
 	return speed * (TARGET_DELTA_TIME / 1000)
 }
 
@@ -795,65 +865,46 @@ create_entities :: proc()
 		}
 	}
 
+
+	// Gate way
+	gateway_tex := SDL_Image.LoadTexture(game.renderer, "assets/gateway_black_lg.png")
+	assert(gateway_tex != nil, SDL.GetErrorString())
+	g_w : i32
+	_g_h : i32
+	SDL.QueryTexture(gateway_tex, nil, nil, &g_w, &_g_h)
+
+	game.gateway = Gateway{
+		tex = gateway_tex,
+		dest = SDL.Rect{
+			w = g_w,
+			h = WINDOW_HEIGHT,
+		},
+		is_active = false
+	}
+
 	// Background
-	game.bg_tex = SDL_Image.LoadTexture(game.renderer, "assets/bg_purple_1.png")
-	assert(game.bg_tex != nil, SDL.GetErrorString())
-	bg_w : i32
-	bg_h : i32
-	SDL.QueryTexture(game.bg_tex, nil, nil, &bg_w, &bg_h)
+	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
+	assert(stars != nil, SDL.GetErrorString())
 
-	// top Row of bg images
-	game.bg_1 = Background{
-		dest = SDL.Rect{
-			x = 0,
-			w = bg_w,
-			h = bg_h,
-		}
-	}
+	purple_nebula := SDL_Image.LoadTexture(game.renderer, "assets/bg_purple_1.png")
+	assert(purple_nebula != nil, SDL.GetErrorString())
 
-	game.bg_2 = Background{
-		dest = SDL.Rect{
-			x = bg_w,
-			w = bg_w,
-			h = bg_h,
-		}
-	}
+	bg_w : i32 = 1024
+	bg_h : i32 = 1024
 
-	game.bg_3 = Background{
-		dest = SDL.Rect{
-			x = bg_w * 2,
-			w = bg_w,
-			h = bg_h,
-		}
-	}
+	game.bg_current = Background.PurpleNebula
+	game.background_textures[Background.PlainStars] = stars
+	game.background_textures[Background.PurpleNebula] = purple_nebula
 
-	// BOTTOM Row of bg images
-	game.bg_4 = Background{
-		dest = SDL.Rect{
-			x = 0,
-			y = bg_h,
-			w = bg_w,
-			h = bg_h,
-		}
-	}
+	game.background_sections[0] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = 0, w = bg_w, h = bg_h}}
+	game.background_sections[1] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w, w = bg_w, h = bg_h}}
+	game.background_sections[2] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 2, w = bg_w, h = bg_h}}
+	game.background_sections[3] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 3, w = bg_w, h = bg_h}}
 
-	game.bg_5 = Background{
-		dest = SDL.Rect{
-			x = bg_w,
-			y = bg_h,
-			w = bg_w,
-			h = bg_h,
-		}
-	}
-
-	game.bg_6 = Background{
-		dest = SDL.Rect{
-			x = bg_w * 2,
-			y = bg_h,
-			w = bg_w,
-			h = bg_h,
-		}
-	}
+	game.background_sections[4] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = 0, y = bg_h, w = bg_w, h = bg_h}}
+	game.background_sections[5] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w, y = bg_h, w = bg_w, h = bg_h}}
+	game.background_sections[6] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 2, y = bg_h, w = bg_w, h = bg_h}}
+	game.background_sections[7] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 3, y = bg_h, w = bg_w, h = bg_h}}
 
 }
 
