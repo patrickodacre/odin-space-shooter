@@ -33,12 +33,6 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
-Background :: enum
-{
-	PlainStars,
-	PurpleNebula,
-}
-
 Game :: struct
 {
 	is_invicible: bool,
@@ -47,15 +41,6 @@ Game :: struct
 	stage_reset_timer: f64,
 	perf_frequency: f64,
 	renderer: ^SDL.Renderer,
-
-	// background
-	bg_tex: ^SDL.Texture,
-	bg_1: Background,
-	bg_2: Background,
-	bg_3: Background,
-	bg_4: Background,
-	bg_5: Background,
-	bg_6: Background,
 
 	// player
 	player: Entity,
@@ -84,8 +69,13 @@ Game :: struct
 
 	background_textures: [Background]^SDL.Texture,
 	background_sections: [8]BackgroundSection,
-	transition_textures: [1]^SDL.Texture,
 
+}
+
+Background :: enum
+{
+	PlainStars,
+	PurpleNebula,
 }
 
 BackgroundSection :: struct
@@ -205,9 +195,9 @@ main :: proc()
 		{
 			section := &game.background_sections[index]
 
-			top_right := section.dest.x + section.dest.w
+			right_side := section.dest.x + section.dest.w
 
-			if top_right < -(section.dest.w / 2)
+			if right_side < -(section.dest.w / 2)
 			{
 				next_section_index : int
 				if index < 4
