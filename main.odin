@@ -33,9 +33,11 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
+OVERLAY_TIMER: f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2
+
 Game :: struct
 {
-	is_invicible: bool,
+	is_invincible: bool,
 	is_paused: bool,
 
 	stage_reset_timer: f64,
@@ -70,6 +72,12 @@ Game :: struct
 	background_textures: [Background]^SDL.Texture,
 	background_sections: [8]BackgroundSection,
 
+	overlay: SDL.Rect,
+	overlay_alpha: u8,
+
+	overlay_active: bool,
+	overlay_frame: int,
+	overlay_timer: f64,
 }
 
 Background :: enum
@@ -104,7 +112,12 @@ Entity :: struct
 }
 
 game := Game{
-	is_invicible = false,
+	overlay = SDL.Rect{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT},
+	overlay_active = false,
+	overlay_frame = 1,
+	overlay_timer = OVERLAY_TIMER,
+	overlay_alpha = 0,
+	is_invincible = false,
 }
 
 // a proc (procedure) would be a 'function' in another language.
@@ -177,9 +190,11 @@ main :: proc()
 					case .L:
 						fmt.println("log")
 					case .I:
-						game.is_invicible = !game.is_invicible
+						game.is_invincible = !game.is_invincible
 					case .P:
 						game.is_paused = ! game.is_paused
+					case .F:
+						game.overlay_active = true
 				}
 
 			}
@@ -257,7 +272,7 @@ main :: proc()
 					drone.dest.h
 					)
 
-				if hit && !game.is_invicible
+				if hit && !game.is_invincible
 				{
 
 					drone.health = 0
@@ -311,7 +326,7 @@ main :: proc()
 					laser.dest.h,
 					)
 
-				if hit && !game.is_invicible
+				if hit && !game.is_invincible
 				{
 					laser.health = 0
 					game.player.health = 0
@@ -399,7 +414,7 @@ main :: proc()
 						drone.dest.h
 						)
 
-					if hit && !game.is_invicible
+					if hit && !game.is_invincible
 					{
 
 						drone.health = 0
@@ -503,7 +518,7 @@ main :: proc()
 
 			SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
 
-			if game.is_invicible
+			if game.is_invincible
 			{
 				r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
 				SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
@@ -582,6 +597,69 @@ main :: proc()
 			}
 
 		}
+
+		// Fade Overlay
+		if game.overlay_frame > 3
+		{
+			game.overlay_active = false
+			game.overlay_frame = 1
+			game.overlay_timer = OVERLAY_TIMER
+			game.is_invincible = false
+		}
+
+		if game.overlay_active
+		{
+			game.is_invincible = true
+			// fade out
+			if game.overlay_frame == 1
+			{
+				new_alpha := game.overlay_alpha + 5
+
+				// overflow
+				if new_alpha < game.overlay_alpha
+				{
+					new_alpha = 255
+				}
+
+				game.overlay_alpha = new_alpha
+			}
+
+			// pause
+			if game.overlay_frame == 2
+			{
+				game.overlay_alpha = 255
+			}
+
+			// fade in
+			if game.overlay_frame == 3
+			{
+				new_alpha := game.overlay_alpha - 5
+
+				// underflow
+				if new_alpha > game.overlay_alpha
+				{
+					new_alpha = 0
+				}
+
+				game.overlay_alpha = new_alpha
+			}
+
+
+			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, u8(game.overlay_alpha))
+			SDL.RenderFillRect(game.renderer, &game.overlay)
+
+			game.overlay_timer -= TARGET_DELTA_TIME
+
+			if game.overlay_timer < 0
+			{
+				game.overlay_timer = OVERLAY_TIMER
+				game.overlay_frame += 1
+			}
+		}
+
+
+
 
 
 		// TIMERS
