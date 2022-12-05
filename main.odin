@@ -14,18 +14,16 @@ WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 HITBOXES_VISIBLE :: false
 
-BACKGROUND_SPEED :: 400
+BACKGROUND_SPEED :: 300
 
 PLAYER_SPEED : f64 : 250 // pixels per second
 LASER_SPEED : f64 : 500
 LASER_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND / 2) // 1/2 second
 NUM_OF_LASERS :: 100
 
-DRONE_SPEED : f64 : 500
 DRONE_SPAWN_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1 // 1 sec
 NUM_OF_DRONES :: 5
 
-DRONE_LASER_SPEED : f64 : DRONE_SPEED + 30
 DRONE_LASER_COOLDOWN_TIMER_SINGLE : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2)
 DRONE_LASER_COOLDOWN_TIMER_ALL : f64 : TARGET_DELTA_TIME * 5
 NUM_OF_DRONE_LASERS :: 2
@@ -35,7 +33,8 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
-Background :: enum {
+Background :: enum
+{
 	PlainStars,
 	PurpleNebula,
 }
@@ -83,12 +82,9 @@ Game :: struct
 	effect_explosion_frames: [11]^SDL.Texture,
 	explosions: [NUM_OF_DRONES * 2]Explosion,
 
-	bg_current: Background,
 	background_textures: [Background]^SDL.Texture,
 	background_sections: [8]BackgroundSection,
 	transition_textures: [1]^SDL.Texture,
-	gateway: Gateway,
-	use_gateway: bool,
 
 }
 
@@ -96,13 +92,6 @@ BackgroundSection :: struct
 {
 	background: Background,
 	dest: SDL.Rect,
-}
-
-Gateway :: struct
-{
-	tex: ^SDL.Texture,
-	dest: SDL.Rect,
-	is_active: bool,
 }
 
 Explosion :: struct
@@ -195,10 +184,10 @@ main :: proc()
 				{
 					case .ESCAPE:
 						break game_loop
-					case .G:
-						game.use_gateway = true
 					case .L:
 						fmt.println("log")
+					case .I:
+						game.is_invicible = !game.is_invicible
 					case .P:
 						game.is_paused = ! game.is_paused
 				}
@@ -206,9 +195,12 @@ main :: proc()
 			}
 		}
 
-		delta_x := i32(get_delta_motion(BACKGROUND_SPEED))
 
+		/****************************
 		// 3. Update and Render
+		****************************/
+
+		// background first...
 		for index in 0..<len(game.background_sections)
 		{
 			section := &game.background_sections[index]
@@ -217,7 +209,6 @@ main :: proc()
 
 			if top_right < -(section.dest.w / 2)
 			{
-				fmt.println("switching at top_right {} ", top_right)
 				next_section_index : int
 				if index < 4
 				{
@@ -231,35 +222,10 @@ main :: proc()
 				next_section := &game.background_sections[next_section_index]
 
 				// position AFTER the last section in line
-				section.dest.x = (next_section.dest.x + next_section.dest.w)
-
-				fmt.println("Next x {} -- {} -> {}", index, next_section.dest.x + next_section.dest.w, section.dest.x, section.dest.x + section.dest.w)
-
-				// bg for the section offscreen to the right should be of the one before it
-				section.background = next_section.background
-
-				// unless... we're changing our bg
-				if game.use_gateway
-				{
-					game.use_gateway = false
-
-					if section.background == Background.PurpleNebula
-					{
-						section.background = Background.PlainStars
-					}
-					else
-					{
-						section.background = Background.PurpleNebula
-					}
-
-					// position our gateway
-					game.gateway.dest.x = section.dest.x - (game.gateway.dest.w / 2)
-					game.gateway.is_active = true
-				}
-
+				section.dest.x = next_section.dest.x + next_section.dest.w
 			}
 
-			section.dest.x -= delta_x
+			section.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 			tex := game.background_textures[section.background]
 			SDL.RenderCopy(game.renderer, tex, nil, &section.dest)
 
@@ -492,8 +458,8 @@ main :: proc()
 
 							if !game.is_paused
 							{
-								laser.dx = new_dx * get_delta_motion(DRONE_LASER_SPEED)
-								laser.dy = new_dy * get_delta_motion(DRONE_LASER_SPEED)
+								laser.dx = new_dx * get_delta_motion(drone.dx + 150)
+								laser.dy = new_dy * get_delta_motion(drone.dx + 150)
 							}
 
 							// reset the cooldown to prevent firing too rapidly
@@ -546,6 +512,13 @@ main :: proc()
 			when HITBOXES_VISIBLE do render_hitbox(&game.player.dest)
 
 			SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
+
+			if game.is_invicible
+			{
+				r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
+				SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
+				SDL.RenderDrawRect(game.renderer, &r)
+			}
 
 			// FIRE PLAYER LASERS
 			// NOTE :: firing new lasers AFTER
@@ -620,16 +593,6 @@ main :: proc()
 
 		}
 
-		if game.gateway.dest.x + game.gateway.dest.w < 0
-		{
-			game.gateway.is_active = false
-		}
-
-		if game.gateway.is_active
-		{
-			game.gateway.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-			SDL.RenderCopy(game.renderer, game.gateway.tex, nil, &game.gateway.dest)
-		}
 
 		// TIMERS
 		game.laser_cooldown -= TARGET_DELTA_TIME
@@ -689,6 +652,7 @@ calc_slope :: proc(from_x, from_y, to_x, to_y : i32) -> (f64, f64)
 
 	return new_dx, new_dy
 }
+
 get_delta_motion :: proc(speed: f64) -> f64
 {
 	if game.is_paused
@@ -794,9 +758,7 @@ create_entities :: proc()
 		}
 
 		// randomize speed to make things more interesting
-		max := DRONE_SPEED * 1.2
-		min := DRONE_SPEED * 0.5
-		random_speed := rand.float64_range(min, max)
+		random_speed := rand.float64_range(BACKGROUND_SPEED + 50, BACKGROUND_SPEED + 200)
 
 		game.drones[index] = Entity{
 			dest = destination,
@@ -828,8 +790,6 @@ create_entities :: proc()
 		game.drone_lasers[index] = Entity{
 			source = source,
 			dest = destination,
-			dx = DRONE_LASER_SPEED,
-			dy = DRONE_LASER_SPEED,
 			health = 0,
 		}
 	}
@@ -866,22 +826,6 @@ create_entities :: proc()
 	}
 
 
-	// Gate way
-	gateway_tex := SDL_Image.LoadTexture(game.renderer, "assets/gateway_black_lg.png")
-	assert(gateway_tex != nil, SDL.GetErrorString())
-	g_w : i32
-	_g_h : i32
-	SDL.QueryTexture(gateway_tex, nil, nil, &g_w, &_g_h)
-
-	game.gateway = Gateway{
-		tex = gateway_tex,
-		dest = SDL.Rect{
-			w = g_w,
-			h = WINDOW_HEIGHT,
-		},
-		is_active = false
-	}
-
 	// Background
 	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
 	assert(stars != nil, SDL.GetErrorString())
@@ -892,7 +836,6 @@ create_entities :: proc()
 	bg_w : i32 = 1024
 	bg_h : i32 = 1024
 
-	game.bg_current = Background.PurpleNebula
 	game.background_textures[Background.PlainStars] = stars
 	game.background_textures[Background.PurpleNebula] = purple_nebula
 
