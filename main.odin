@@ -646,7 +646,7 @@ main :: proc()
 
 
 			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
-			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, u8(game.overlay_alpha))
+			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, game.overlay_alpha)
 			SDL.RenderFillRect(game.renderer, &game.overlay)
 
 			game.overlay_timer -= TARGET_DELTA_TIME
