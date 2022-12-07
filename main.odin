@@ -587,9 +587,9 @@ main :: proc()
 
 				if game.is_invincible
 				{
-					r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
-					SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
-					SDL.RenderDrawRect(game.renderer, &r)
+					// r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
+					// SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
+					// SDL.RenderDrawRect(game.renderer, &r)
 				}
 
 				// FIRE PLAYER LASERS
