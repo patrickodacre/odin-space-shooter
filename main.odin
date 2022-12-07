@@ -197,9 +197,9 @@ main :: proc()
 	SDL.RenderSetLogicalSize(game.renderer, WINDOW_WIDTH, WINDOW_HEIGHT)
 
 	create_statics()
+	create_entities()
 	create_animations()
-
-	reset_stage()
+	reset_timers()
 
 	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
 	start : f64
@@ -792,14 +792,43 @@ collision :: proc(x1, y1, w1, h1, x2, y2, w2, h2: i32) -> bool
 	return (max(x1, x2) < min(x1 + w1, x2 + w2)) && (max(y1, y2) < min(y1 + h1, y2 + h2))
 }
 
-reset_stage :: proc()
+reset_timers :: proc()
 {
-	create_entities()
-
 	game.laser_cooldown = LASER_COOLDOWN_TIMER
 	game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
 	game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
 	game.stage_reset_timer = STAGE_RESET_TIMER
+}
+
+reset_entities :: proc()
+{
+	game.player.dest.x = 20
+	game.player.dest.y = WINDOW_HEIGHT / 2
+
+	for laser in &game.lasers
+	{
+		laser.health = 0
+	}
+
+	for laser in &game.drone_lasers
+	{
+		laser.health = 0
+	}
+
+	for drone in &game.drones
+	{
+		random_speed := rand.float64_range(BACKGROUND_SPEED + 50, BACKGROUND_SPEED + 200)
+		drone.health = 0
+		drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
+		drone.dx = random_speed
+		drone.dy = random_speed
+	}
+
+	for explosion in &game.explosions
+	{
+		explosion.frame = 0
+		explosion.is_active = false
+	}
 }
 
 create_entities :: proc()
@@ -1069,7 +1098,8 @@ create_animations :: proc()
 			game.player.health = 1
 			game.is_restarting = false
 
-			reset_stage()
+			reset_entities()
+			reset_timers()
 		}
 	}
 
