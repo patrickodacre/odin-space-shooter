@@ -1273,10 +1273,10 @@ create_animations :: proc()
 
 }
 
-make_text :: proc(text: string, w : i32 = 60, h : i32 = 80) -> Text
+make_text :: proc(text: cstring, w : i32 = 60, h : i32 = 80) -> Text
 {
 	white : SDL.Color = {255,255,255, 255}
-	surface := SDL_TTF.RenderText_Solid(game.font, caprintf(text), white)
+	surface := SDL_TTF.RenderText_Solid(game.font, text, white)
 	defer(SDL.FreeSurface(surface))
 	tex := SDL.CreateTextureFromSurface(game.renderer, surface)
 	dest := SDL.Rect{
