@@ -3,6 +3,7 @@ package game
 import "core:fmt"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
+import SDL_TTF "vendor:sdl2/ttf"
 import "core:math/rand"
 import "core:strings"
 
@@ -33,10 +34,20 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
-OVERLAY_TIMER: f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2
-
 Game :: struct
 {
+
+	is_restarting: bool,
+	is_render_title: bool,
+	is_render_sub_title: bool,
+	fade_animation: Animation,
+	reset_animation: Animation,
+
+	font: ^SDL_TTF.Font,
+	texts: [TextId]Text,
+
+	screen: Screen,
+
 	is_invincible: bool,
 	is_paused: bool,
 
@@ -74,10 +85,45 @@ Game :: struct
 
 	overlay: SDL.Rect,
 	overlay_alpha: u8,
+}
 
-	overlay_active: bool,
-	overlay_frame: int,
-	overlay_timer: f64,
+Animation :: struct
+{
+	is_active: bool,
+	current_frame: int,
+	frames: [dynamic]Frame,
+	maybe_run: proc(),
+	each: proc(),
+	start: proc(),
+}
+
+Frame :: struct
+{
+	duration: f64,
+	timer: f64,
+	action: proc(),
+}
+
+
+TextId :: enum
+{
+	HomeTitle,
+	HomeSubTitle,
+	DeathScreen,
+	Loading,
+}
+
+Text :: struct
+{
+	tex: ^SDL.Texture,
+	dest: SDL.Rect,
+}
+
+Screen :: enum
+{
+	Home,
+	Play,
+	End,
 }
 
 Background :: enum
@@ -112,12 +158,12 @@ Entity :: struct
 }
 
 game := Game{
+	is_render_title = true,
+	is_render_sub_title = true,
 	overlay = SDL.Rect{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT},
-	overlay_active = false,
-	overlay_frame = 1,
-	overlay_timer = OVERLAY_TIMER,
 	overlay_alpha = 0,
 	is_invincible = false,
+	stage_reset_timer = STAGE_RESET_TIMER
 }
 
 // a proc (procedure) would be a 'function' in another language.
@@ -126,6 +172,12 @@ main :: proc()
 	assert(SDL.Init(SDL.INIT_VIDEO) == 0, SDL.GetErrorString())
 	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
 	defer SDL.Quit()
+
+	init_font := SDL_TTF.Init()
+	assert(init_font == 0, SDL.GetErrorString())
+	game.font = SDL_TTF.OpenFont("assets/fonts/Terminal.ttf", 28)
+	assert(game.font != nil, SDL.GetErrorString())
+	defer SDL_TTF.Quit()
 
 	window := SDL.CreateWindow(
 		"Odin Space Shooter",
@@ -143,6 +195,9 @@ main :: proc()
 	defer SDL.DestroyRenderer(game.renderer)
 
 	SDL.RenderSetLogicalSize(game.renderer, WINDOW_WIDTH, WINDOW_HEIGHT)
+
+	create_statics()
+	create_animations()
 
 	reset_stage()
 
@@ -193,13 +248,16 @@ main :: proc()
 						game.is_invincible = !game.is_invincible
 					case .P:
 						game.is_paused = ! game.is_paused
-					case .F:
-						game.overlay_active = true
+					case .SPACE:
+						if game.screen == Screen.Home
+						{
+							game.fade_animation.is_active = true
+							game.is_render_sub_title = false
+						}
 				}
 
 			}
 		}
-
 
 		/****************************
 		// 3. Update and Render
@@ -232,181 +290,48 @@ main :: proc()
 
 			section.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 			tex := game.background_textures[section.background]
+
+			if game.screen == Screen.Home
+			{
+				tex = game.background_textures[Background.PlainStars]
+			}
+
 			SDL.RenderCopy(game.renderer, tex, nil, &section.dest)
 
 		}
 
-		// Based on the positions that are currently visible to the Player...
-		// 1. Check Collisions
-		// 2. Move any entities that survive
-		// 3. Reset any entities that are offscreen
-		// 4. Render onscreen entities
-		// 5. Fire new lasers + render
-		// 6. Respawn new drones + render
-
-		// Player Lasers -- check collisions -> render
-		for laser in &game.lasers
+		if game.screen == Screen.Play
 		{
 
-			if laser.health == 0
-			{
-				continue
-			}
+			// Based on the positions that are currently visible to the Player...
+			// 1. Check Collisions
+			// 2. Move any entities that survive
+			// 3. Reset any entities that are offscreen
+			// 4. Render onscreen entities
+			// 5. Fire new lasers + render
+			// 6. Respawn new drones + render
 
-			detect_collision : for drone in &game.drones
+			// Player Lasers -- check collisions -> render
+			for laser in &game.lasers
 			{
-				if drone.health == 0
+
+				if laser.health == 0
 				{
 					continue
 				}
 
-				hit := collision(
-					laser.dest.x,
-					laser.dest.y,
-					laser.dest.w,
-					laser.dest.h,
-
-					drone.dest.x,
-					drone.dest.y,
-					drone.dest.w,
-					drone.dest.h
-					)
-
-				if hit && !game.is_invincible
+				detect_collision : for drone in &game.drones
 				{
+					if drone.health == 0
+					{
+						continue
+					}
 
-					drone.health = 0
-					laser.health = 0
-
-			    	explode(&drone)
-
-					break detect_collision
-				}
-
-			}
-
-			laser.dest.x += i32(get_delta_motion(laser.dx))
-
-			if laser.dest.x > WINDOW_WIDTH
-			{
-				laser.health = 0
-			}
-
-			if laser.health > 0
-			{
-				when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
-				SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
-			}
-		}
-
-		// Drone Lasers -- check collisions -> render
-		for laser, idx in &game.drone_lasers
-		{
-
-			if laser.health == 0
-			{
-				continue
-			}
-
-			// check collision based on previous frame's rendered position
-			// check player health to make sure drone lasers don't explode
-			// while we're rendering our stage_reset() scenes after a player
-			// has already died.
-			if game.player.health > 0
-			{
-				hit := collision(
-					game.player.dest.x,
-					game.player.dest.y,
-					game.player.dest.w,
-					game.player.dest.h,
-
-					laser.dest.x,
-					laser.dest.y,
-					laser.dest.w,
-					laser.dest.h,
-					)
-
-				if hit && !game.is_invincible
-				{
-					laser.health = 0
-					game.player.health = 0
-
-			    	explode(&game.player)
-				}
-			}
-
-			if !game.is_paused
-			{
-				laser.dest.x += i32(laser.dx)
-				laser.dest.y += i32(laser.dy)
-			}
-
-			// reset laser if it's offscreen
-			// checking x and y b/c these drone
-			// lasers go in different directions
-			if laser.dest.x <= 0 ||
-			laser.dest.x >= WINDOW_WIDTH ||
-			laser.dest.y <= 0 ||
-			laser.dest.y >= WINDOW_HEIGHT
-			{
-				laser.health = 0
-			}
-
-			if laser.health > 0
-			{
-				when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
-				SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
-			}
-
-		}
-
-		// At this point we've checked our collisions
-		// and we've figured out our active Player Lasers,
-		// Drones, and Drone Lasers.
-
-		// render active drones and fire new lasers
-		respawned := false
-		for drone in &game.drones
-		{
-
-			if !respawned &&
-			drone.health == 0 &&
-			!(game.drone_spawn_cooldown > 0)
-			{
-				drone.dest.x = WINDOW_WIDTH
-				drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
-				drone.health = 1
-				drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE / 10 // ready to fire quickly
-
-				game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
-
-				respawned = true
-			}
-
-			if drone.health == 0
-			{
-				continue
-			}
-
-			drone.dest.x -= i32(get_delta_motion(drone.dx))
-
-			if drone.dest.x <= 0
-			{
-				drone.health = 0
-			}
-
-			if drone.health > 0
-			{
-
-				// check player health to account for our 3-second transition
-				// scenes after a player dies
-				if  game.player.health > 0
-				{
 					hit := collision(
-						game.player.dest.x,
-						game.player.dest.y,
-						game.player.dest.w,
-						game.player.dest.h,
+						laser.dest.x,
+						laser.dest.y,
+						laser.dest.w,
+						laser.dest.h,
 
 						drone.dest.x,
 						drone.dest.y,
@@ -418,254 +343,372 @@ main :: proc()
 					{
 
 						drone.health = 0
-						game.player.health = 0
+						laser.health = 0
 
 				    	explode(&drone)
-				    	explode(&game.player)
 
-				    	// skip the rest of this loop so we
-				    	// don't render our drone or fire its laser
-						continue
+						break detect_collision
+					}
+
+				}
+
+				laser.dest.x += i32(get_delta_motion(laser.dx))
+
+				if laser.dest.x > WINDOW_WIDTH
+				{
+					laser.health = 0
+				}
+
+				if laser.health > 0
+				{
+					when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
+					SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
+				}
+			}
+
+			// Drone Lasers -- check collisions -> render
+			for laser, idx in &game.drone_lasers
+			{
+
+				if laser.health == 0
+				{
+					continue
+				}
+
+				// check collision based on previous frame's rendered position
+				// check player health to make sure drone lasers don't explode
+				// while we're rendering our stage_reset() scenes after a player
+				// has already died.
+				if game.player.health > 0
+				{
+					hit := collision(
+						game.player.dest.x,
+						game.player.dest.y,
+						game.player.dest.w,
+						game.player.dest.h,
+
+						laser.dest.x,
+						laser.dest.y,
+						laser.dest.w,
+						laser.dest.h,
+						)
+
+					if hit && !game.is_invincible
+					{
+						laser.health = 0
+						game.player.health = 0
+
+				    	explode(&game.player)
 					}
 				}
 
-				SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
+				if !game.is_paused
+				{
+					laser.dest.x += i32(laser.dx)
+					laser.dest.y += i32(laser.dy)
+				}
 
-				// for each active drone, fire a laser if cooldown time reached
-				// and the drone isn't moving offscreen
-				// without this 300 pixel buffer, it looks like lasers
-				// are coming from offscreen
-				if drone.dest.x > 30 &&
-				drone.dest.x < (WINDOW_WIDTH - 30) &&
-				drone.ready <= 0 &&
-				game.drone_laser_cooldown < 0
+				// reset laser if it's offscreen
+				// checking x and y b/c these drone
+				// lasers go in different directions
+				if laser.dest.x <= 0 ||
+				laser.dest.x >= WINDOW_WIDTH ||
+				laser.dest.y <= 0 ||
+				laser.dest.y >= WINDOW_HEIGHT
+				{
+					laser.health = 0
+				}
+
+				if laser.health > 0
+				{
+					when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
+					SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
+				}
+
+			}
+
+			// At this point we've checked our collisions
+			// and we've figured out our active Player Lasers,
+			// Drones, and Drone Lasers.
+
+			// render active drones and fire new lasers
+			respawned := false
+			for drone in &game.drones
+			{
+
+				if !respawned &&
+				drone.health == 0 &&
+				!(game.drone_spawn_cooldown > 0)
+				{
+					drone.dest.x = WINDOW_WIDTH
+					drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
+					drone.health = 1
+					drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE / 10 // ready to fire quickly
+
+					game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
+
+					respawned = true
+				}
+
+				if drone.health == 0
+				{
+					continue
+				}
+
+				drone.dest.x -= i32(get_delta_motion(drone.dx))
+
+				if drone.dest.x <= 0
+				{
+					drone.health = 0
+				}
+
+				if drone.health > 0
 				{
 
-					// find a drone laser:
-					fire_drone_laser : for laser, idx in &game.drone_lasers
+					// check player health to account for our 3-second transition
+					// scenes after a player dies
+					if  game.player.health > 0
+					{
+						hit := collision(
+							game.player.dest.x,
+							game.player.dest.y,
+							game.player.dest.w,
+							game.player.dest.h,
+
+							drone.dest.x,
+							drone.dest.y,
+							drone.dest.w,
+							drone.dest.h
+							)
+
+						if hit && !game.is_invincible
+						{
+
+							drone.health = 0
+							game.player.health = 0
+
+					    	explode(&drone)
+					    	explode(&game.player)
+
+					    	// skip the rest of this loop so we
+					    	// don't render our drone or fire its laser
+							continue
+						}
+					}
+
+					SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
+
+					// for each active drone, fire a laser if cooldown time reached
+					// and the drone isn't moving offscreen
+					// without this 300 pixel buffer, it looks like lasers
+					// are coming from offscreen
+					if drone.dest.x > 30 &&
+					drone.dest.x < (WINDOW_WIDTH - 30) &&
+					drone.ready <= 0 &&
+					game.drone_laser_cooldown < 0
 					{
 
+						// find a drone laser:
+						fire_drone_laser : for laser, idx in &game.drone_lasers
+						{
+
+							// find the first one available
+							if laser.health == 0
+							{
+
+								// fire from the drone's position
+								laser.dest.x = drone.dest.x
+								laser.dest.y = drone.dest.y
+								laser.health = 1
+
+								new_dx, new_dy := calc_slope(
+									laser.dest.x,
+									laser.dest.y,
+									game.player.dest.x,
+									game.player.dest.y
+									)
+
+								if !game.is_paused
+								{
+									laser.dx = new_dx * get_delta_motion(drone.dx + 150)
+									laser.dy = new_dy * get_delta_motion(drone.dx + 150)
+								}
+
+								// reset the cooldown to prevent firing too rapidly
+								drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
+								game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
+
+								SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
+
+								break fire_drone_laser
+							}
+						}
+					}
+
+					// decrement our 'ready' timer
+					// to help distribute lasers more evenly between
+					// the active drones
+					drone.ready -= TARGET_DELTA_TIME
+
+				}
+
+			}
+
+			// update player position, etc...
+			if game.player.health > 0
+			{
+
+				delta_motion_x := get_delta_motion(game.player.dx)
+				delta_motion_y := get_delta_motion(game.player.dy)
+
+				if game.left
+				{
+					move_player(-delta_motion_x, 0)
+				}
+
+				if game.right
+				{
+					move_player(delta_motion_x, 0)
+				}
+
+				if game.up
+				{
+					move_player(0, -delta_motion_y)
+				}
+
+				if game.down
+				{
+					move_player(0, delta_motion_y)
+				}
+
+				when HITBOXES_VISIBLE do render_hitbox(&game.player.dest)
+
+				SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
+
+				if game.is_invincible
+				{
+					r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
+					SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
+					SDL.RenderDrawRect(game.renderer, &r)
+				}
+
+				// FIRE PLAYER LASERS
+				// NOTE :: firing new lasers AFTER
+				// Collisions have been detected; otherwise,
+				// collisions may be true for lasers that aren't rendered, yet.
+				// BUT this means rendering of new lasers is delayed by one frame.
+				// Is this the best way?
+				if game.fire && !(game.laser_cooldown > 0)
+				{
+					// find a laser:
+					fire : for laser in &game.lasers
+					{
 						// find the first one available
 						if laser.health == 0
 						{
-
-							// fire from the drone's position
-							laser.dest.x = drone.dest.x
-							laser.dest.y = drone.dest.y
+							laser.dest.x = game.player.dest.x + 20
+							laser.dest.y = game.player.dest.y
 							laser.health = 1
-
-							new_dx, new_dy := calc_slope(
-								laser.dest.x,
-								laser.dest.y,
-								game.player.dest.x,
-								game.player.dest.y
-								)
-
-							if !game.is_paused
-							{
-								laser.dx = new_dx * get_delta_motion(drone.dx + 150)
-								laser.dy = new_dy * get_delta_motion(drone.dx + 150)
-							}
-
 							// reset the cooldown to prevent firing too rapidly
-							drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
-							game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
+							game.laser_cooldown = LASER_COOLDOWN_TIMER
 
-							SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
+							SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
 
-							break fire_drone_laser
+							break fire
 						}
 					}
 				}
 
-				// decrement our 'ready' timer
-				// to help distribute lasers more evenly between
-				// the active drones
-				drone.ready -= TARGET_DELTA_TIME
-
 			}
 
-		}
-
-		// update player position, etc...
-		if game.player.health > 0
-		{
-
-			delta_motion_x := get_delta_motion(game.player.dx)
-			delta_motion_y := get_delta_motion(game.player.dy)
-
-			if game.left
+			// Player Dead
+			if game.player.health == 0 && !game.is_restarting
 			{
-				move_player(-delta_motion_x, 0)
-			}
 
-			if game.right
-			{
-				move_player(delta_motion_x, 0)
-			}
+				msg := game.texts[TextId.DeathScreen]
+				msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
+				msg.dest.y = (WINDOW_HEIGHT / 2) - (msg.dest.h / 2)
+				SDL.RenderCopy(game.renderer, msg.tex, nil, &msg.dest)
 
-			if game.up
-			{
-				move_player(0, -delta_motion_y)
-			}
+				game.stage_reset_timer -= TARGET_DELTA_TIME
 
-			if game.down
-			{
-				move_player(0, delta_motion_y)
-			}
-
-			when HITBOXES_VISIBLE do render_hitbox(&game.player.dest)
-
-			SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
-
-			if game.is_invincible
-			{
-				r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
-				SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
-				SDL.RenderDrawRect(game.renderer, &r)
-			}
-
-			// FIRE PLAYER LASERS
-			// NOTE :: firing new lasers AFTER
-			// Collisions have been detected; otherwise,
-			// collisions may be true for lasers that aren't rendered, yet.
-			// BUT this means rendering of new lasers is delayed by one frame.
-			// Is this the best way?
-			if game.fire && !(game.laser_cooldown > 0)
-			{
-				// find a laser:
-				fire : for laser in &game.lasers
+				if game.stage_reset_timer < 0
 				{
-					// find the first one available
-					if laser.health == 0
+
+					game.is_restarting = true
+
+					game.reset_animation.start()
+					game.fade_animation.start()
+				}
+
+			}
+
+			// Explosions
+			for x in &game.explosions
+			{
+				// there are 11 sprites
+				// so index 10 will be our final frame
+				if x.frame > 10
+				{
+					x.is_active = false
+				}
+
+				if x.is_active
+				{
+
+					t := game.effect_explosion_frames[x.frame]
+
+					// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
+					x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+
+					SDL.RenderCopy(game.renderer, t, nil, &x.dest)
+
+					x.frame_timer -= TARGET_DELTA_TIME
+
+					// switch frames
+					if x.frame_timer < 0
 					{
-						laser.dest.x = game.player.dest.x + 20
-						laser.dest.y = game.player.dest.y
-						laser.health = 1
-						// reset the cooldown to prevent firing too rapidly
-						game.laser_cooldown = LASER_COOLDOWN_TIMER
-
-						SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
-
-						break fire
+						// restart timer
+						x.frame_timer = FRAME_TIMER_EXPLOSIONS
+						x.frame += 1
 					}
 				}
+
 			}
 
+			// TIMERS
+			game.laser_cooldown -= TARGET_DELTA_TIME
+			game.drone_spawn_cooldown -= TARGET_DELTA_TIME
+			game.drone_laser_cooldown -= TARGET_DELTA_TIME
+
+		// end game.screen == Screen.Play
 		}
 
-		// Player Dead
-		if game.player.health == 0
+
+		game.fade_animation.maybe_run()
+		game.reset_animation.maybe_run()
+
+		if game.is_render_title
 		{
-			game.stage_reset_timer -= TARGET_DELTA_TIME
 
-			if game.stage_reset_timer < 0
+			title := game.texts[TextId.HomeTitle]
+			sub_title := game.texts[TextId.HomeSubTitle]
+
+			title.dest.x = (WINDOW_WIDTH / 2) - (title.dest.w / 2)
+			title.dest.y = (WINDOW_HEIGHT / 2) - (title.dest.h / 2)
+
+			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+			if game.is_render_sub_title
 			{
-				reset_stage()
-			}
-		}
+				sub_title.dest.x = (WINDOW_WIDTH / 2) - (sub_title.dest.w / 2)
+				sub_title.dest.y = (WINDOW_HEIGHT / 2) - (sub_title.dest.h / 2) + title.dest.h
 
-		// Explosions
-		for x in &game.explosions
-		{
-			// there are 11 sprites
-			// so index 10 will be our final frame
-			if x.frame > 10
-			{
-				x.is_active = false
-			}
-
-			if x.is_active
-			{
-
-				t := game.effect_explosion_frames[x.frame]
-
-				// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
-				x.dest.x -= i32(get_delta_motion(x.dx)) / 3
-
-				SDL.RenderCopy(game.renderer, t, nil, &x.dest)
-
-				x.frame_timer -= TARGET_DELTA_TIME
-
-				// switch frames
-				if x.frame_timer < 0
-				{
-					// restart timer
-					x.frame_timer = FRAME_TIMER_EXPLOSIONS
-					x.frame += 1
-				}
-			}
-
-		}
-
-		// Fade Overlay
-		if game.overlay_frame > 3
-		{
-			game.overlay_active = false
-			game.overlay_frame = 1
-			game.overlay_timer = OVERLAY_TIMER
-			game.is_invincible = false
-		}
-
-		if game.overlay_active
-		{
-			game.is_invincible = true
-			// fade out
-			if game.overlay_frame == 1
-			{
-				new_alpha := game.overlay_alpha + 5
-
-				// overflow
-				if new_alpha < game.overlay_alpha
-				{
-					new_alpha = 255
-				}
-
-				game.overlay_alpha = new_alpha
-			}
-
-			// pause
-			if game.overlay_frame == 2
-			{
-				game.overlay_alpha = 255
-			}
-
-			// fade in
-			if game.overlay_frame == 3
-			{
-				new_alpha := game.overlay_alpha - 5
-
-				// underflow
-				if new_alpha > game.overlay_alpha
-				{
-					new_alpha = 0
-				}
-
-				game.overlay_alpha = new_alpha
-			}
-
-
-			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
-			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, game.overlay_alpha)
-			SDL.RenderFillRect(game.renderer, &game.overlay)
-
-			game.overlay_timer -= TARGET_DELTA_TIME
-
-			if game.overlay_timer < 0
-			{
-				game.overlay_timer = OVERLAY_TIMER
-				game.overlay_frame += 1
+				SDL.RenderCopy(game.renderer, sub_title.tex, nil, &sub_title.dest)
 			}
 		}
 
 
-
-
-
-		// TIMERS
-		game.laser_cooldown -= TARGET_DELTA_TIME
-		game.drone_spawn_cooldown -= TARGET_DELTA_TIME
-		game.drone_laser_cooldown -= TARGET_DELTA_TIME
 
 		// ... end LOOP code
 
@@ -756,7 +799,6 @@ reset_stage :: proc()
 	game.laser_cooldown = LASER_COOLDOWN_TIMER
 	game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
 	game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
-
 	game.stage_reset_timer = STAGE_RESET_TIMER
 }
 
@@ -893,30 +935,6 @@ create_entities :: proc()
 		}
 	}
 
-
-	// Background
-	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
-	assert(stars != nil, SDL.GetErrorString())
-
-	purple_nebula := SDL_Image.LoadTexture(game.renderer, "assets/bg_purple_1.png")
-	assert(purple_nebula != nil, SDL.GetErrorString())
-
-	bg_w : i32 = 1024
-	bg_h : i32 = 1024
-
-	game.background_textures[Background.PlainStars] = stars
-	game.background_textures[Background.PurpleNebula] = purple_nebula
-
-	game.background_sections[0] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = 0, w = bg_w, h = bg_h}}
-	game.background_sections[1] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w, w = bg_w, h = bg_h}}
-	game.background_sections[2] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 2, w = bg_w, h = bg_h}}
-	game.background_sections[3] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 3, w = bg_w, h = bg_h}}
-
-	game.background_sections[4] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = 0, y = bg_h, w = bg_w, h = bg_h}}
-	game.background_sections[5] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w, y = bg_h, w = bg_w, h = bg_h}}
-	game.background_sections[6] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 2, y = bg_h, w = bg_w, h = bg_h}}
-	game.background_sections[7] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 3, y = bg_h, w = bg_w, h = bg_h}}
-
 }
 
 caprintf :: proc(format: string, args: ..any) -> cstring {
@@ -949,4 +967,234 @@ explode :: proc(e: ^Entity)
 	}
 
 
+}
+
+create_statics :: proc()
+{
+	// messages
+	t := make_text("Space Shooter")
+
+	game.texts[TextId.HomeTitle] = make_text("Space Shooter")
+	game.texts[TextId.HomeSubTitle] = make_text("press space to start", i32(30), i32(60))
+
+	game.texts[TextId.DeathScreen] = make_text("Oh no!")
+	game.texts[TextId.Loading] = make_text("Loading...", i32(30), i32(60))
+
+	// Background
+	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
+	assert(stars != nil, SDL.GetErrorString())
+
+	purple_nebula := SDL_Image.LoadTexture(game.renderer, "assets/bg_purple_1.png")
+	assert(purple_nebula != nil, SDL.GetErrorString())
+
+	bg_w : i32 = 1024
+	bg_h : i32 = 1024
+
+	game.background_textures[Background.PlainStars] = stars
+	game.background_textures[Background.PurpleNebula] = purple_nebula
+
+	game.background_sections[0] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = 0, w = bg_w, h = bg_h}}
+	game.background_sections[1] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w, w = bg_w, h = bg_h}}
+	game.background_sections[2] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 2, w = bg_w, h = bg_h}}
+	game.background_sections[3] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 3, w = bg_w, h = bg_h}}
+
+	game.background_sections[4] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = 0, y = bg_h, w = bg_w, h = bg_h}}
+	game.background_sections[5] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w, y = bg_h, w = bg_w, h = bg_h}}
+	game.background_sections[6] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 2, y = bg_h, w = bg_w, h = bg_h}}
+	game.background_sections[7] = BackgroundSection{background = Background.PurpleNebula, dest = SDL.Rect{x = bg_w * 3, y = bg_h, w = bg_w, h = bg_h}}
+
+
+}
+
+
+create_animations :: proc()
+{
+
+	game.reset_animation = Animation{}
+	game.reset_animation.frames = make([dynamic]Frame, 2, 2)
+	game.reset_animation.current_frame = 0
+	game.reset_animation.is_active = false
+	game.reset_animation.start = proc()
+	{
+		game.reset_animation.current_frame = 0
+		game.reset_animation.is_active = true
+	}
+
+	game.reset_animation.maybe_run = proc()
+	{
+		if game.reset_animation.current_frame > (len(game.reset_animation.frames) - 1)
+		{
+			game.reset_animation.current_frame = 0
+			game.reset_animation.is_active = false
+		}
+
+		if game.reset_animation.is_active
+		{
+
+			frame := &game.reset_animation.frames[game.reset_animation.current_frame]
+
+			frame.action()
+
+			frame.timer -= TARGET_DELTA_TIME
+			if frame.timer < 0
+			{
+				game.reset_animation.current_frame += 1
+				frame.timer = frame.duration
+			}
+
+		}
+	}
+
+	// init
+	game.reset_animation.frames[0] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		action = proc() {
+			game.is_invincible = true
+			game.player.health = 0 // keep player hidden
+		}
+	}
+
+	game.reset_animation.frames[1] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+		action = proc() {
+
+			msg := game.texts[TextId.Loading]
+			msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
+			msg.dest.y = (WINDOW_HEIGHT / 2) - (msg.dest.h / 2)
+			SDL.RenderCopy(game.renderer, msg.tex, nil, &msg.dest)
+
+			game.screen = Screen.Play
+			game.player.health = 1
+			game.is_restarting = false
+
+			reset_stage()
+		}
+	}
+
+	// end reset_animation
+
+
+	game.fade_animation = Animation{}
+	game.fade_animation.frames = make([dynamic]Frame, 5, 5)
+	game.fade_animation.current_frame = 0
+	game.fade_animation.is_active = false
+
+	game.fade_animation.start = proc()
+	{
+		game.fade_animation.current_frame = 0
+		game.fade_animation.is_active = true
+	}
+
+	game.fade_animation.maybe_run = proc()
+	{
+		if game.fade_animation.current_frame > (len(game.fade_animation.frames) - 1)
+		{
+			game.fade_animation.current_frame = 0
+			game.fade_animation.is_active = false
+		}
+
+		if game.fade_animation.is_active
+		{
+
+			frame := &game.fade_animation.frames[game.fade_animation.current_frame]
+
+			frame.action()
+			game.fade_animation.each()
+
+			frame.timer -= TARGET_DELTA_TIME
+			if frame.timer < 0
+			{
+				game.fade_animation.current_frame += 1
+				frame.timer = frame.duration
+			}
+
+		}
+	}
+
+	game.fade_animation.each = proc()
+	{
+		SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+		SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, game.overlay_alpha)
+		SDL.RenderFillRect(game.renderer, &game.overlay)
+	}
+
+	// init
+	game.fade_animation.frames[0] = Frame{
+		duration = TARGET_DELTA_TIME,
+		timer = TARGET_DELTA_TIME,
+		action = proc() {
+			game.is_invincible = true
+			game.overlay_alpha = 0
+		}
+	}
+
+	game.fade_animation.frames[1] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		action = proc() {
+			new_alpha := game.overlay_alpha + 5
+
+			// check overflow
+			if new_alpha < game.overlay_alpha
+			{
+				new_alpha = 255
+			}
+
+			game.overlay_alpha = new_alpha
+		}
+	}
+
+	game.fade_animation.frames[2] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+		action = proc() {
+			game.player.health = 1
+			game.screen = Screen.Play
+			game.overlay_alpha = 255
+		}
+	}
+
+	game.fade_animation.frames[3] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		action = proc() {
+			new_alpha := game.overlay_alpha - 5
+
+			// check underflow
+			if new_alpha > game.overlay_alpha
+			{
+				game.is_render_title = false
+				new_alpha = 0
+			}
+
+			game.overlay_alpha = new_alpha
+		}
+	}
+
+	game.fade_animation.frames[4] = Frame{
+		duration = TARGET_DELTA_TIME,
+		timer = TARGET_DELTA_TIME,
+		action = proc() {
+			game.is_invincible = false
+		}
+	}
+
+}
+
+make_text :: proc(text: string, w : i32 = 60, h : i32 = 80) -> Text
+{
+	white : SDL.Color = {255,255,255, 255}
+	surface := SDL_TTF.RenderText_Solid(game.font, caprintf(text), white)
+	defer(SDL.FreeSurface(surface))
+	tex := SDL.CreateTextureFromSurface(game.renderer, surface)
+	dest := SDL.Rect{
+		// x = i32(WINDOW_WIDTH / 2) - i32(len(text)) * w / 2,
+		// y = i32(WINDOW_HEIGHT / 2) - i32(h / 2),
+		w = i32(len(text)) * w,
+		h = h
+	}
+
+	return Text{tex, dest}
 }
