@@ -94,7 +94,6 @@ Animation :: struct
 	current_frame: int,
 	frames: [dynamic]Frame,
 	maybe_run: proc(),
-	each: proc(),
 	start: proc(),
 }
 
@@ -124,7 +123,6 @@ Screen :: enum
 {
 	Home,
 	Play,
-	End,
 }
 
 Background :: enum
@@ -159,6 +157,7 @@ Entity :: struct
 }
 
 game := Game{
+	screen = Screen.Home,
 	is_render_title = true,
 	is_render_sub_title = true,
 	overlay = SDL.Rect{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT},
@@ -171,8 +170,9 @@ game := Game{
 main :: proc()
 {
 	assert(SDL.Init(SDL.INIT_VIDEO) == 0, SDL.GetErrorString())
-	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
 	defer SDL.Quit()
+	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
+	defer SDL_Image.Quit()
 
 	init_font := SDL_TTF.Init()
 	assert(init_font == 0, SDL.GetErrorString())
@@ -694,8 +694,6 @@ main :: proc()
 		{
 
 			title := game.texts[TextId.HomeTitle]
-			sub_title := game.texts[TextId.HomeSubTitle]
-
 			title.dest.x = (WINDOW_WIDTH / 2) - (title.dest.w / 2)
 			title.dest.y = (WINDOW_HEIGHT / 2) - (title.dest.h / 2)
 
@@ -703,6 +701,7 @@ main :: proc()
 
 			if game.is_render_sub_title
 			{
+				sub_title := game.texts[TextId.HomeSubTitle]
 				sub_title.dest.x = (WINDOW_WIDTH / 2) - (sub_title.dest.w / 2)
 				sub_title.dest.y = (WINDOW_HEIGHT / 2) - (sub_title.dest.h / 2) + title.dest.h
 
@@ -1000,9 +999,7 @@ explode :: proc(e: ^Entity)
 
 create_statics :: proc()
 {
-	// messages
-	t := make_text("Space Shooter")
-
+	// texts
 	game.texts[TextId.HomeTitle] = make_text("Space Shooter")
 	game.texts[TextId.HomeSubTitle] = make_text("press space to start", i32(30), i32(60))
 
@@ -1211,7 +1208,10 @@ create_animations :: proc()
 			frame := &game.fade_animation.frames[game.fade_animation.current_frame]
 
 			frame.action()
-			game.fade_animation.each()
+
+			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, game.overlay_alpha)
+			SDL.RenderFillRect(game.renderer, &game.overlay)
 
 			frame.timer -= TARGET_DELTA_TIME
 			if frame.timer < 0
@@ -1221,13 +1221,6 @@ create_animations :: proc()
 			}
 
 		}
-	}
-
-	game.fade_animation.each = proc()
-	{
-		SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
-		SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, game.overlay_alpha)
-		SDL.RenderFillRect(game.renderer, &game.overlay)
 	}
 
 	game.fade_animation.frames[0] = Frame{
