@@ -40,6 +40,7 @@ Game :: struct
 	is_restarting: bool,
 	is_render_title: bool,
 	is_render_sub_title: bool,
+	begin_stage_animation: Animation,
 	fade_animation: Animation,
 	reset_animation: Animation,
 
@@ -251,7 +252,8 @@ main :: proc()
 					case .SPACE:
 						if game.screen == Screen.Home
 						{
-							game.fade_animation.is_active = true
+							game.begin_stage_animation.start()
+							game.fade_animation.start()
 							game.is_render_sub_title = false
 						}
 				}
@@ -635,9 +637,8 @@ main :: proc()
 				if game.stage_reset_timer < 0
 				{
 
-					game.is_restarting = true
-
 					game.reset_animation.start()
+					game.begin_stage_animation.start()
 					game.fade_animation.start()
 				}
 
@@ -685,6 +686,7 @@ main :: proc()
 		}
 
 
+		game.begin_stage_animation.maybe_run()
 		game.fade_animation.maybe_run()
 		game.reset_animation.maybe_run()
 
@@ -994,8 +996,6 @@ explode :: proc(e: ^Entity)
 			break find_explosion
 		}
 	}
-
-
 }
 
 create_statics :: proc()
@@ -1039,6 +1039,77 @@ create_statics :: proc()
 create_animations :: proc()
 {
 
+	// begin new stage
+	// this animation should be timed according to the fade_animation
+	game.begin_stage_animation = Animation{}
+	a := &game.begin_stage_animation
+	a.frames = make([dynamic]Frame, 3, 3)
+	a.current_frame = 0
+	a.is_active = false
+	a.start = proc()
+	{
+		game.begin_stage_animation.current_frame = 0
+		game.begin_stage_animation.is_active = true
+	}
+	a.maybe_run = proc()
+	{
+
+		a := &game.begin_stage_animation
+		// finished animation
+		if a.current_frame > (len(a.frames) - 1)
+		{
+			a.current_frame = 0
+			a.is_active = false
+		}
+
+		// do animation
+		if a.is_active
+		{
+
+			frame := &a.frames[a.current_frame]
+
+			frame.action()
+
+			frame.timer -= TARGET_DELTA_TIME
+
+			// reset and move to the next frame
+			if frame.timer < 0
+			{
+				frame.timer = frame.duration
+				a.current_frame += 1
+			}
+
+		}
+	}
+
+	a.frames[0] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		action = proc() {
+			game.is_invincible = true
+		}
+	}
+
+	a.frames[1] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3),
+		action = proc() {
+			// render player and init play screen as scene fades in
+			game.player.health = 1
+			game.screen = Screen.Play
+		}
+	}
+
+	a.frames[2] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+		action = proc() {
+			game.is_invincible = false
+		}
+	}
+
+
+	// reset after death
 	game.reset_animation = Animation{}
 	game.reset_animation.frames = make([dynamic]Frame, 2, 2)
 	game.reset_animation.current_frame = 0
@@ -1049,14 +1120,17 @@ create_animations :: proc()
 		game.reset_animation.is_active = true
 	}
 
+	// animation will only run if active and unfinished
 	game.reset_animation.maybe_run = proc()
 	{
+		// finished animation
 		if game.reset_animation.current_frame > (len(game.reset_animation.frames) - 1)
 		{
 			game.reset_animation.current_frame = 0
 			game.reset_animation.is_active = false
 		}
 
+		// do animation
 		if game.reset_animation.is_active
 		{
 
@@ -1065,10 +1139,12 @@ create_animations :: proc()
 			frame.action()
 
 			frame.timer -= TARGET_DELTA_TIME
+
+			// reset and move to the next frame
 			if frame.timer < 0
 			{
-				game.reset_animation.current_frame += 1
 				frame.timer = frame.duration
+				game.reset_animation.current_frame += 1
 			}
 
 		}
@@ -1079,8 +1155,10 @@ create_animations :: proc()
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		action = proc() {
-			game.is_invincible = true
-			game.player.health = 0 // keep player hidden
+			// prevent stage reset from continuing to run b/c player health == 0
+			game.is_restarting = true
+			// we want the player hidden until the reset is complete
+			game.player.health = 0
 		}
 	}
 
@@ -1095,6 +1173,7 @@ create_animations :: proc()
 			SDL.RenderCopy(game.renderer, msg.tex, nil, &msg.dest)
 
 			game.screen = Screen.Play
+			game.is_invincible = true
 			game.player.health = 1
 			game.is_restarting = false
 
@@ -1102,17 +1181,18 @@ create_animations :: proc()
 			reset_timers()
 		}
 	}
-
 	// end reset_animation
 
 
+	// 5 seconds total
 	game.fade_animation = Animation{}
-	game.fade_animation.frames = make([dynamic]Frame, 5, 5)
+	game.fade_animation.frames = make([dynamic]Frame, 3, 3)
 	game.fade_animation.current_frame = 0
 	game.fade_animation.is_active = false
 
 	game.fade_animation.start = proc()
 	{
+		game.overlay_alpha = 0
 		game.fade_animation.current_frame = 0
 		game.fade_animation.is_active = true
 	}
@@ -1150,17 +1230,7 @@ create_animations :: proc()
 		SDL.RenderFillRect(game.renderer, &game.overlay)
 	}
 
-	// init
 	game.fade_animation.frames[0] = Frame{
-		duration = TARGET_DELTA_TIME,
-		timer = TARGET_DELTA_TIME,
-		action = proc() {
-			game.is_invincible = true
-			game.overlay_alpha = 0
-		}
-	}
-
-	game.fade_animation.frames[1] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		action = proc() {
@@ -1176,17 +1246,15 @@ create_animations :: proc()
 		}
 	}
 
-	game.fade_animation.frames[2] = Frame{
+	game.fade_animation.frames[1] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		action = proc() {
-			game.player.health = 1
-			game.screen = Screen.Play
 			game.overlay_alpha = 255
 		}
 	}
 
-	game.fade_animation.frames[3] = Frame{
+	game.fade_animation.frames[2] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		action = proc() {
@@ -1203,14 +1271,6 @@ create_animations :: proc()
 		}
 	}
 
-	game.fade_animation.frames[4] = Frame{
-		duration = TARGET_DELTA_TIME,
-		timer = TARGET_DELTA_TIME,
-		action = proc() {
-			game.is_invincible = false
-		}
-	}
-
 }
 
 make_text :: proc(text: string, w : i32 = 60, h : i32 = 80) -> Text
@@ -1220,8 +1280,6 @@ make_text :: proc(text: string, w : i32 = 60, h : i32 = 80) -> Text
 	defer(SDL.FreeSurface(surface))
 	tex := SDL.CreateTextureFromSurface(game.renderer, surface)
 	dest := SDL.Rect{
-		// x = i32(WINDOW_WIDTH / 2) - i32(len(text)) * w / 2,
-		// y = i32(WINDOW_HEIGHT / 2) - i32(h / 2),
 		w = i32(len(text)) * w,
 		h = h
 	}
