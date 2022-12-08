@@ -1000,11 +1000,11 @@ explode :: proc(e: ^Entity)
 create_statics :: proc()
 {
 	// texts
-	game.texts[TextId.HomeTitle] = make_text("Space Shooter")
-	game.texts[TextId.HomeSubTitle] = make_text("press space to start", i32(30), i32(60))
+	game.texts[TextId.HomeTitle] = make_text("Space Shooter", i32(4))
+	game.texts[TextId.HomeSubTitle] = make_text("press space to start", i32(2))
 
-	game.texts[TextId.DeathScreen] = make_text("Oh no!")
-	game.texts[TextId.Loading] = make_text("Loading...", i32(30), i32(60))
+	game.texts[TextId.DeathScreen] = make_text("Oh no!", i32(2))
+	game.texts[TextId.Loading] = make_text("Loading...", i32(2))
 
 	// Background
 	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
@@ -1266,16 +1266,16 @@ create_animations :: proc()
 
 }
 
-make_text :: proc(text: cstring, w : i32 = 60, h : i32 = 80) -> Text
+make_text :: proc(text: cstring, scale: i32 = 1) -> Text
 {
 	white : SDL.Color = {255,255,255, 255}
+	dest := SDL.Rect{}
+	SDL_TTF.SizeText(game.font, text, &dest.w, &dest.h)
 	surface := SDL_TTF.RenderText_Solid(game.font, text, white)
 	defer(SDL.FreeSurface(surface))
 	tex := SDL.CreateTextureFromSurface(game.renderer, surface)
-	dest := SDL.Rect{
-		w = i32(len(text)) * w,
-		h = h
-	}
+	dest.w *= scale
+	dest.h *= scale
 
 	return Text{tex, dest}
 }
