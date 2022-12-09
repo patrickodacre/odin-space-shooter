@@ -294,7 +294,7 @@ for drone, idx in &game.drones
 
 ```
 
-For now we're just moving our drones horizontally, but in future parts we'll give them a little bit of vertical movement, as well. Be sure to keep an eye on [this series]() to catch that update!
+For now we're just moving our drones horizontally, but in future parts we'll give them a little bit of vertical movement, as well. Be sure to keep an eye on [this series](https://www.youtube.com/playlist?list=PLuZ3rcIdDc9EA4YqLJSsrzYeUDv8Mucxz) to catch that update!
 
 ## Suggested Challenges
 
@@ -302,4 +302,4 @@ In the next part we'll give our player the ability to destroy these drones -- th
 
 See if you can figure out the basic collision detection needed to make that happen.
 
-If you get something working, share it in the comments beneath this [video]()!
+If you get something working, share it in the comments beneath this [video](https://youtu.be/5ccarSklfVM)!
