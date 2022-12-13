@@ -174,7 +174,7 @@ game := Game{
 	overlay = SDL.Rect{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT},
 	overlay_alpha = 0,
 	is_invincible = false,
-	stage_reset_timer = STAGE_RESET_TIMER
+	stage_reset_timer = STAGE_RESET_TIMER,
 }
 
 // a proc (procedure) would be a 'function' in another language.
@@ -220,7 +220,7 @@ main :: proc()
 		SDL.WINDOWPOS_CENTERED,
 		WINDOW_WIDTH,
 		WINDOW_HEIGHT,
-		WINDOW_FLAGS
+		WINDOW_FLAGS,
 	)
 	assert(window != nil, SDL.GetErrorString())
 	defer SDL.DestroyWindow(window)
@@ -374,7 +374,7 @@ main :: proc()
 						drone.dest.x,
 						drone.dest.y,
 						drone.dest.w,
-						drone.dest.h
+						drone.dest.h,
 						)
 
 					if hit && !game.is_invincible
@@ -516,7 +516,7 @@ main :: proc()
 							drone.dest.x,
 							drone.dest.y,
 							drone.dest.w,
-							drone.dest.h
+							drone.dest.h,
 							)
 
 						if hit && !game.is_invincible
@@ -563,7 +563,7 @@ main :: proc()
 									laser.dest.x,
 									laser.dest.y,
 									game.player.dest.x,
-									game.player.dest.y
+									game.player.dest.y,
 									)
 
 								if !game.is_paused
@@ -1134,7 +1134,7 @@ create_animations :: proc()
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		action = proc() {
 			game.is_invincible = true
-		}
+		},
 	}
 
 	a.frames[1] = Frame{
@@ -1144,7 +1144,7 @@ create_animations :: proc()
 			// render player and init play screen as scene fades in
 			game.player.health = 1
 			game.screen = Screen.Play
-		}
+		},
 	}
 
 	a.frames[2] = Frame{
@@ -1152,7 +1152,7 @@ create_animations :: proc()
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		action = proc() {
 			game.is_invincible = false
-		}
+		},
 	}
 
 
@@ -1206,7 +1206,7 @@ create_animations :: proc()
 			game.is_restarting = true
 			// we want the player hidden until the reset is complete
 			game.player.health = 0
-		}
+		},
 	}
 
 	game.reset_animation.frames[1] = Frame{
@@ -1226,7 +1226,7 @@ create_animations :: proc()
 
 			reset_entities()
 			reset_timers()
-		}
+		},
 	}
 	// end reset_animation
 
@@ -1286,7 +1286,7 @@ create_animations :: proc()
 			}
 
 			game.overlay_alpha = new_alpha
-		}
+		},
 	}
 
 	game.fade_animation.frames[1] = Frame{
@@ -1294,7 +1294,7 @@ create_animations :: proc()
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		action = proc() {
 			game.overlay_alpha = 255
-		}
+		},
 	}
 
 	game.fade_animation.frames[2] = Frame{
@@ -1311,7 +1311,7 @@ create_animations :: proc()
 			}
 
 			game.overlay_alpha = new_alpha
-		}
+		},
 	}
 
 }
