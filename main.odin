@@ -4,6 +4,7 @@ import "core:fmt"
 import SDL "vendor:sdl2"
 import SDL_Image "vendor:sdl2/image"
 import SDL_TTF "vendor:sdl2/ttf"
+import MIX "vendor:sdl2/mixer"
 import "core:math/rand"
 import "core:strings"
 
@@ -34,9 +35,19 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
+SoundId :: enum
+{
+	PlayerLaser,
+	DroneLaser,
+	PlayerExplosion,
+	DroneExplosion,
+}
+
 Game :: struct
 {
 
+	sounds: [SoundId]^MIX.Chunk,
+	bg_sound_fx: ^MIX.Music,
 	is_restarting: bool,
 	is_render_title: bool,
 	is_render_sub_title: bool,
@@ -169,7 +180,7 @@ game := Game{
 // a proc (procedure) would be a 'function' in another language.
 main :: proc()
 {
-	assert(SDL.Init(SDL.INIT_VIDEO) == 0, SDL.GetErrorString())
+	assert(SDL.Init(SDL.INIT_VIDEO | SDL.INIT_AUDIO) == 0, SDL.GetErrorString())
 	defer SDL.Quit()
 	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
 	defer SDL_Image.Quit()
@@ -179,6 +190,29 @@ main :: proc()
 	game.font = SDL_TTF.OpenFont("assets/fonts/Terminal.ttf", 28)
 	assert(game.font != nil, SDL.GetErrorString())
 	defer SDL_TTF.Quit()
+
+	init_sound := MIX.Init(MIX.INIT_OGG)
+	assert(init_sound != -1, SDL.GetErrorString())
+	defer MIX.Quit()
+
+	opened_audio := MIX.OpenAudio(44100, MIX.DEFAULT_FORMAT, 2, 1014)
+	assert(opened_audio != -1, SDL.GetErrorString())
+
+	MIX.AllocateChannels(8)
+
+	// lasers
+	game.sounds[SoundId.PlayerLaser] = MIX.LoadWAV("assets/sounds/player-laser.ogg")
+	assert(game.sounds[SoundId.PlayerLaser] != nil, SDL.GetErrorString())
+	game.sounds[SoundId.DroneLaser] = MIX.LoadWAV("assets/sounds/drone-laser.ogg")
+	assert(game.sounds[SoundId.DroneLaser] != nil, SDL.GetErrorString())
+
+	// explosions
+	game.sounds[SoundId.PlayerExplosion] = MIX.LoadWAV("assets/sounds/player-explosion.ogg")
+	assert(game.sounds[SoundId.PlayerExplosion] != nil, SDL.GetErrorString())
+	game.sounds[SoundId.DroneExplosion] = MIX.LoadWAV("assets/sounds/drone-explosion.ogg")
+	assert(game.sounds[SoundId.DroneExplosion] != nil, SDL.GetErrorString())
+
+	game.bg_sound_fx = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
 
 	window := SDL.CreateWindow(
 		"Odin Space Shooter",
@@ -208,6 +242,8 @@ main :: proc()
 
 	event : SDL.Event
 	state : [^]u8
+
+	MIX.PlayMusic(game.bg_sound_fx, -1)
 
 	game_loop : for
 	{
@@ -347,7 +383,7 @@ main :: proc()
 						drone.health = 0
 						laser.health = 0
 
-				    	explode(&drone)
+				    	explode_drone(&drone)
 
 						break detect_collision
 					}
@@ -400,7 +436,7 @@ main :: proc()
 						laser.health = 0
 						game.player.health = 0
 
-				    	explode(&game.player)
+				    	explode_player(&game.player)
 					}
 				}
 
@@ -489,8 +525,8 @@ main :: proc()
 							drone.health = 0
 							game.player.health = 0
 
-					    	explode(&drone)
-					    	explode(&game.player)
+					    	explode_drone(&drone)
+					    	explode_player(&game.player)
 
 					    	// skip the rest of this loop so we
 					    	// don't render our drone or fire its laser
@@ -541,6 +577,7 @@ main :: proc()
 								game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
 
 								SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
+								MIX.PlayChannel(-1, game.sounds[SoundId.DroneLaser], 0)
 
 								break fire_drone_laser
 							}
@@ -615,6 +652,7 @@ main :: proc()
 							game.laser_cooldown = LASER_COOLDOWN_TIMER
 
 							SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
+							MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
 
 							break fire
 						}
@@ -974,6 +1012,18 @@ caprintf :: proc(format: string, args: ..any) -> cstring {
     strings.write_byte(&str, 0)
     s := strings.to_string(str)
     return cstring(raw_data(s))
+}
+
+explode_player :: proc(e: ^Entity)
+{
+	explode(e)
+	MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
+}
+
+explode_drone :: proc(e: ^Entity)
+{
+	explode(e)
+	MIX.PlayChannel(-1, game.sounds[SoundId.DroneExplosion], 0)
 }
 
 explode :: proc(e: ^Entity)
