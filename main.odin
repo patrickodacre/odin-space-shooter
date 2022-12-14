@@ -266,6 +266,8 @@ main :: proc()
 	event : SDL.Event
 	state : [^]u8
 
+	// https://wiki.libsdl.org/SDL_mixer/Mix_PlayMusic
+	// -1 => infinite loop
 	MIX.PlayMusic(game.bg_sound_fx, -1)
 
 	game_loop : for
@@ -1040,6 +1042,11 @@ caprintf :: proc(format: string, args: ..any) -> cstring {
 explode_player :: proc(e: ^Entity)
 {
 	explode(e)
+
+	// https://wiki.libsdl.org/SDL_mixer/Mix_PlayChannel
+	// -1 => first available channel
+	// Chunk
+	// Loops? -1 => infinite, 0 => play once and stop
 	MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
 }
 
