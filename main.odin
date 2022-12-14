@@ -35,14 +35,6 @@ STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 
-SoundId :: enum
-{
-	PlayerLaser,
-	DroneLaser,
-	PlayerExplosion,
-	DroneExplosion,
-}
-
 Game :: struct
 {
 
@@ -97,6 +89,14 @@ Game :: struct
 
 	overlay: SDL.Rect,
 	overlay_alpha: u8,
+}
+
+SoundId :: enum
+{
+	PlayerLaser,
+	DroneLaser,
+	PlayerExplosion,
+	DroneExplosion,
 }
 
 Animation :: struct
@@ -195,24 +195,47 @@ main :: proc()
 	assert(init_sound != -1, SDL.GetErrorString())
 	defer MIX.Quit()
 
-	opened_audio := MIX.OpenAudio(44100, MIX.DEFAULT_FORMAT, 2, 1014)
+	FREQUENCY :: 44100
+	STEREO :: 2 // MONO is 1
+	CHUNK_SIZE :: 1024
+	// OpenAudio will initialize the Audio subsystem if not already
+	// https://wiki.libsdl.org/SDL_mixer/Mix_OpenAudio
+	opened_audio := MIX.OpenAudio(FREQUENCY, MIX.DEFAULT_FORMAT, STEREO, CHUNK_SIZE)
 	assert(opened_audio != -1, SDL.GetErrorString())
 
+	// channels aka tracks -- how many sounds to play simultaneously
+	// https://wiki.libsdl.org/SDL_mixer/Mix_AllocateChannels
+	// 8 is default
 	MIX.AllocateChannels(8)
 
 	// lasers
+	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadWAV
+	// returns a Chunk which is decoded into memory up front
+	// many channels - many chunks
 	game.sounds[SoundId.PlayerLaser] = MIX.LoadWAV("assets/sounds/player-laser.ogg")
 	assert(game.sounds[SoundId.PlayerLaser] != nil, SDL.GetErrorString())
+	defer MIX.FreeChunk(game.sounds[SoundId.PlayerLaser])
+
 	game.sounds[SoundId.DroneLaser] = MIX.LoadWAV("assets/sounds/drone-laser.ogg")
 	assert(game.sounds[SoundId.DroneLaser] != nil, SDL.GetErrorString())
+	defer MIX.FreeChunk(game.sounds[SoundId.DroneLaser])
 
 	// explosions
 	game.sounds[SoundId.PlayerExplosion] = MIX.LoadWAV("assets/sounds/player-explosion.ogg")
 	assert(game.sounds[SoundId.PlayerExplosion] != nil, SDL.GetErrorString())
+	defer MIX.FreeChunk(game.sounds[SoundId.PlayerExplosion])
+
 	game.sounds[SoundId.DroneExplosion] = MIX.LoadWAV("assets/sounds/drone-explosion.ogg")
 	assert(game.sounds[SoundId.DroneExplosion] != nil, SDL.GetErrorString())
+	defer MIX.FreeChunk(game.sounds[SoundId.DroneExplosion])
 
+
+	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadMUS
+	// returns Music which is decoded on demand
+	// one channel for music
 	game.bg_sound_fx = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
+	assert(game.bg_sound_fx != nil, SDL.GetErrorString())
+	defer MIX.FreeMusic(game.bg_sound_fx)
 
 	window := SDL.CreateWindow(
 		"Odin Space Shooter",
