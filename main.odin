@@ -7,6 +7,9 @@ import SDL_TTF "vendor:sdl2/ttf"
 import MIX "vendor:sdl2/mixer"
 import "core:math/rand"
 import "core:strings"
+import "core:unicode/utf8"
+
+COLOR_WHITE : SDL.Color = {255,255,255, 255}
 
 WINDOW_FLAGS :: SDL.WINDOW_SHOWN | SDL.WINDOW_RESIZABLE
 RENDER_FLAGS :: SDL.RENDERER_ACCELERATED
@@ -49,6 +52,7 @@ Game :: struct
 
 	font: ^SDL_TTF.Font,
 	texts: [TextId]Text,
+	chars: map[rune]Text,
 
 	screen: Screen,
 
@@ -89,6 +93,10 @@ Game :: struct
 
 	overlay: SDL.Rect,
 	overlay_alpha: u8,
+
+	// score
+	current_score: int,
+
 }
 
 SoundId :: enum
@@ -122,6 +130,7 @@ TextId :: enum
 	HomeSubTitle,
 	DeathScreen,
 	Loading,
+	ScoreLabel,
 }
 
 Text :: struct
@@ -168,6 +177,7 @@ Entity :: struct
 }
 
 game := Game{
+	chars = make(map[rune]Text),
 	screen = Screen.Home,
 	is_render_title = true,
 	is_render_sub_title = true,
@@ -175,6 +185,8 @@ game := Game{
 	overlay_alpha = 0,
 	is_invincible = false,
 	stage_reset_timer = STAGE_RESET_TIMER,
+
+	current_score = 0,
 }
 
 // a proc (procedure) would be a 'function' in another language.
@@ -409,6 +421,7 @@ main :: proc()
 						laser.health = 0
 
 				    	explode_drone(&drone)
+				    	game.current_score += 1
 
 						break detect_collision
 					}
@@ -456,12 +469,15 @@ main :: proc()
 						laser.dest.h,
 						)
 
-					if hit && !game.is_invincible
+					if hit
 					{
 						laser.health = 0
-						game.player.health = 0
 
-				    	explode_player(&game.player)
+						if !game.is_invincible
+						{
+							game.player.health = 0
+					    	explode_player(&game.player)
+						}
 					}
 				}
 
@@ -544,14 +560,17 @@ main :: proc()
 							drone.dest.h,
 							)
 
-						if hit && !game.is_invincible
+						if hit
 						{
 
 							drone.health = 0
-							game.player.health = 0
-
 					    	explode_drone(&drone)
-					    	explode_player(&game.player)
+
+							if !game.is_invincible
+							{
+								game.player.health = 0
+						    	explode_player(&game.player)
+							}
 
 					    	// skip the rest of this loop so we
 					    	// don't render our drone or fire its laser
@@ -749,6 +768,43 @@ main :: proc()
 		}
 
 
+		// Render Score
+		// take a slice of the string
+		if game.screen == Screen.Play
+		{
+
+			// score label
+			score := game.texts[TextId.ScoreLabel]
+			score.dest.x = 10
+			score.dest.y = 10
+			SDL.RenderCopy(game.renderer, score.tex, nil, &score.dest)
+
+			// current_score
+			score_str : string = (fmt.tprintf("%v", game.current_score))[:]
+			char_spacing : i32 = 2
+			prev_chars_w : i32 = 0
+
+			starting_x : i32 = score.dest.x + score.dest.w + 10
+			starting_y : i32 = score.dest.y
+
+			// iterate characters in the string
+			for c in score_str
+			{
+				// grab the texture for the single character
+				char : Text = game.chars[c]
+
+				// render this character after the previous one
+				char.dest.x = starting_x + prev_chars_w
+				char.dest.y = starting_y
+
+				SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+				prev_chars_w += char.dest.w + char_spacing
+			}
+
+		}
+
+
 		game.begin_stage_animation.maybe_run()
 		game.fade_animation.maybe_run()
 		game.reset_animation.maybe_run()
@@ -793,7 +849,7 @@ main :: proc()
 
 		// make sure our background is black
 		// RenderClear colors the entire screen whatever color is set here
-		SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, 100)
+		SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, 255)
 
 		// clear the old scene from the renderer
 		// clear after presentation so we remain free to call RenderCopy() throughout our update code / wherever it makes the most sense
@@ -847,7 +903,7 @@ render_hitbox :: proc(dest: ^SDL.Rect)
 {
 	r := SDL.Rect{ dest.x, dest.y, dest.w, dest.h }
 
-	SDL.SetRenderDrawColor(game.renderer, 255, 0, 0, 100)
+	SDL.SetRenderDrawColor(game.renderer, 255, 0, 0, 255)
 	SDL.RenderDrawRect(game.renderer, &r)
 }
 
@@ -1085,6 +1141,16 @@ create_statics :: proc()
 
 	game.texts[TextId.DeathScreen] = make_text("Oh no!", i32(2))
 	game.texts[TextId.Loading] = make_text("Loading...", i32(2))
+	game.texts[TextId.ScoreLabel] = make_text("Score : ")
+
+	chars := "0123456789"
+	for c in chars[:]
+	{
+		str := utf8.runes_to_string([]rune{c})
+		defer delete(str)
+
+		game.chars[c] = make_text(cstring(raw_data(str)))
+	}
 
 	// Background
 	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
@@ -1195,6 +1261,7 @@ create_animations :: proc()
 	{
 		game.reset_animation.current_frame = 0
 		game.reset_animation.is_active = true
+		game.current_score = 0
 	}
 
 	// animation will only run if active and unfinished
@@ -1348,10 +1415,9 @@ create_animations :: proc()
 
 make_text :: proc(text: cstring, scale: i32 = 1) -> Text
 {
-	white : SDL.Color = {255,255,255, 255}
 	dest := SDL.Rect{}
 	SDL_TTF.SizeText(game.font, text, &dest.w, &dest.h)
-	surface := SDL_TTF.RenderText_Solid(game.font, text, white)
+	surface := SDL_TTF.RenderText_Solid(game.font, text, COLOR_WHITE)
 	defer(SDL.FreeSurface(surface))
 	tex := SDL.CreateTextureFromSurface(game.renderer, surface)
 	dest.w *= scale
