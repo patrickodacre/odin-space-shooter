@@ -759,20 +759,6 @@ main :: proc()
 
 			}
 
-			// TIMERS
-			game.laser_cooldown -= TARGET_DELTA_TIME
-			game.drone_spawn_cooldown -= TARGET_DELTA_TIME
-			game.drone_laser_cooldown -= TARGET_DELTA_TIME
-
-		// end game.screen == Screen.Play
-		}
-
-
-		// Render Score
-		// take a slice of the string
-		if game.screen == Screen.Play
-		{
-
 			// score label
 			score := game.texts[TextId.ScoreLabel]
 			score.dest.x = 10
@@ -802,6 +788,14 @@ main :: proc()
 				prev_chars_w += char.dest.w + char_spacing
 			}
 
+
+
+			// TIMERS
+			game.laser_cooldown -= TARGET_DELTA_TIME
+			game.drone_spawn_cooldown -= TARGET_DELTA_TIME
+			game.drone_laser_cooldown -= TARGET_DELTA_TIME
+
+		// end game.screen == Screen.Play
 		}
 
 
