@@ -88,6 +88,10 @@ Game :: struct
 	effect_explosion_frames: [11]^SDL.Texture,
 	explosions: [NUM_OF_DRONES * 2]Explosion,
 
+	nuke_power_up_tex: ^SDL.Texture,
+	nuke_power_ups: [10]NukePowerUp,
+
+
 	background_textures: [Background]^SDL.Texture,
 	background_sections: [8]BackgroundSection,
 
@@ -112,15 +116,15 @@ Animation :: struct
 	is_active: bool,
 	current_frame: int,
 	frames: [dynamic]Frame,
-	maybe_run: proc(),
-	start: proc(),
+	maybe_run: proc(index: int),
+	start: proc(index: int, dest: ^SDL.Rect),
 }
 
 Frame :: struct
 {
 	duration: f64,
 	timer: f64,
-	action: proc(),
+	action: proc(index: int),
 }
 
 
@@ -164,6 +168,17 @@ Explosion :: struct
 	frame: int,
 	frame_timer: f64,
 	is_active: bool,
+}
+
+// can move on an angle
+NukePowerUp :: struct
+{
+	dest: SDL.Rect,
+	dx: f64,
+	dy: f64,
+	animation: Animation,
+	counter: int,
+	alpha: u8,
 }
 
 Entity :: struct
@@ -320,13 +335,14 @@ main :: proc()
 						fmt.println("log")
 					case .I:
 						game.is_invincible = !game.is_invincible
+						fmt.println("I'm invincible!")
 					case .P:
 						game.is_paused = ! game.is_paused
 					case .SPACE:
 						if game.screen == Screen.Home
 						{
-							game.begin_stage_animation.start()
-							game.fade_animation.start()
+							game.begin_stage_animation.start(0, nil)
+							game.fade_animation.start(0, nil)
 							game.is_render_sub_title = false
 						}
 				}
@@ -414,7 +430,7 @@ main :: proc()
 						drone.dest.h,
 						)
 
-					if hit && !game.is_invincible
+					if hit
 					{
 
 						drone.health = 0
@@ -422,6 +438,20 @@ main :: proc()
 
 				    	explode_drone(&drone)
 				    	game.current_score += 1
+
+				    	spawn_pu_nuke: for index in 0..<10
+				    	{
+
+					    	pu_nuke := &game.nuke_power_ups[index].animation
+
+					    	if !pu_nuke.is_active
+					    	{
+					    		pu_nuke.start(index, &drone.dest)
+
+					    		break spawn_pu_nuke
+					    	}
+
+				    	}
 
 						break detect_collision
 					}
@@ -670,9 +700,9 @@ main :: proc()
 
 				if game.is_invincible
 				{
-					// r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
-					// SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
-					// SDL.RenderDrawRect(game.renderer, &r)
+					r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
+					SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
+					SDL.RenderDrawRect(game.renderer, &r)
 				}
 
 				// FIRE PLAYER LASERS
@@ -719,9 +749,9 @@ main :: proc()
 				if game.stage_reset_timer < 0
 				{
 
-					game.reset_animation.start()
-					game.begin_stage_animation.start()
-					game.fade_animation.start()
+					game.reset_animation.start(0, nil)
+					game.begin_stage_animation.start(0, nil)
+					game.fade_animation.start(0, nil)
 				}
 
 			}
@@ -799,9 +829,16 @@ main :: proc()
 		}
 
 
-		game.begin_stage_animation.maybe_run()
-		game.fade_animation.maybe_run()
-		game.reset_animation.maybe_run()
+		game.begin_stage_animation.maybe_run(0)
+		game.fade_animation.maybe_run(0)
+		game.reset_animation.maybe_run(0)
+
+
+    	for index in 0..<10
+    	{
+	    	pu_nuke := &game.nuke_power_ups[index]
+	    	pu_nuke.animation.maybe_run(index)
+    	}
 
 		if game.is_render_title
 		{
@@ -1078,6 +1115,143 @@ create_entities :: proc()
 		}
 	}
 
+
+	// NukePowerUps:
+	// item animation - creates an item that will blink after a few seconds and eventually disappear
+	game.nuke_power_up_tex = SDL_Image.LoadTexture(game.renderer, "assets/pu_nuke.png")
+	assert(game.nuke_power_up_tex != nil, SDL.GetErrorString())
+	pu_nuke_w : i32
+	pu_nuke_h : i32
+	SDL.QueryTexture(game.nuke_power_up_tex, nil, nil, &pu_nuke_w, &pu_nuke_h)
+
+	for index in 0..<10
+	{
+		game.nuke_power_ups[index] = NukePowerUp{
+			dest = SDL.Rect{w = (pu_nuke_w / 7), h = (pu_nuke_h / 7)},
+			animation = Animation{
+				is_active = false,
+				current_frame = 0,
+				frames = make([dynamic]Frame, 3, 3),
+
+			},
+		}
+
+		pu := &game.nuke_power_ups[index].animation
+
+		pu.start = proc(index: int, dest: ^SDL.Rect) {
+			pu := &game.nuke_power_ups[index]
+			pu.alpha = 255
+			pu.counter = 0
+			pu.dest.x = dest.x
+			pu.dest.y = dest.y
+			pu.animation.current_frame = 0
+			pu.animation.is_active = true
+		}
+
+		pu.maybe_run = proc(index: int) {
+			pu := &game.nuke_power_ups[index].animation
+
+			if pu.current_frame > 2
+			{
+				pu.is_active = false
+			}
+
+			if pu.is_active
+			{
+
+				frame := &pu.frames[pu.current_frame]
+
+				frame.action(index)
+
+				frame.timer -= TARGET_DELTA_TIME
+
+				// reset and move to the next frame
+				if frame.timer < 0
+				{
+					frame.timer = frame.duration
+					pu.current_frame += 1
+				}
+
+			}
+		}
+
+
+		pu.frames[0] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 3,
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 3,
+			action = proc(index: int) {
+				pu := &game.nuke_power_ups[index]
+
+				SDL.SetTextureAlphaMod(game.nuke_power_up_tex, pu.alpha)
+				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &pu.dest)
+			},
+		}
+
+		pu.frames[1] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 5,
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 5,
+			action = proc(index: int) {
+				pu := &game.nuke_power_ups[index]
+
+				d := game.nuke_power_ups[index].dest
+
+				// blinking
+				if pu.counter > 15
+				{
+					pu.counter = 0
+
+					if pu.alpha == 255
+					{
+						pu.alpha = 100
+					}
+					else
+					{
+						pu.alpha = 255
+					}
+
+				}
+
+				SDL.SetTextureAlphaMod(game.nuke_power_up_tex, pu.alpha)
+				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &d)
+
+				pu.counter += 1
+
+			},
+		}
+
+		pu.frames[2] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 4,
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 4,
+			action = proc(index: int) {
+				pu := &game.nuke_power_ups[index]
+
+				// blinking
+				if pu.counter > 3
+				{
+					pu.counter = 0
+
+					if pu.alpha == 255
+					{
+						pu.alpha = 100
+					}
+					else
+					{
+						pu.alpha = 255
+					}
+
+				}
+
+				SDL.SetTextureAlphaMod(game.nuke_power_up_tex, pu.alpha)
+				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &pu.dest)
+
+				pu.counter += 1
+
+			},
+		}
+
+	}
+
+
 }
 
 caprintf :: proc(format: string, args: ..any) -> cstring {
@@ -1176,6 +1350,7 @@ create_statics :: proc()
 create_animations :: proc()
 {
 
+
 	// begin new stage
 	// this animation should be timed according to the fade_animation
 	game.begin_stage_animation = Animation{}
@@ -1183,12 +1358,12 @@ create_animations :: proc()
 	a.frames = make([dynamic]Frame, 3, 3)
 	a.current_frame = 0
 	a.is_active = false
-	a.start = proc()
+	a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil)
 	{
 		game.begin_stage_animation.current_frame = 0
 		game.begin_stage_animation.is_active = true
 	}
-	a.maybe_run = proc()
+	a.maybe_run = proc(_index: int = 0)
 	{
 
 		a := &game.begin_stage_animation
@@ -1205,7 +1380,7 @@ create_animations :: proc()
 
 			frame := &a.frames[a.current_frame]
 
-			frame.action()
+			frame.action(_index)
 
 			frame.timer -= TARGET_DELTA_TIME
 
@@ -1222,7 +1397,7 @@ create_animations :: proc()
 	a.frames[0] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
-		action = proc() {
+		action = proc(_index: int) {
 			game.is_invincible = true
 		},
 	}
@@ -1230,7 +1405,7 @@ create_animations :: proc()
 	a.frames[1] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3),
-		action = proc() {
+		action = proc(_index: int) {
 			// render player and init play screen as scene fades in
 			game.player.health = 1
 			game.screen = Screen.Play
@@ -1240,7 +1415,7 @@ create_animations :: proc()
 	a.frames[2] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
-		action = proc() {
+		action = proc(_index: int) {
 			game.is_invincible = false
 		},
 	}
@@ -1251,15 +1426,21 @@ create_animations :: proc()
 	game.reset_animation.frames = make([dynamic]Frame, 2, 2)
 	game.reset_animation.current_frame = 0
 	game.reset_animation.is_active = false
-	game.reset_animation.start = proc()
+	game.reset_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil)
 	{
 		game.reset_animation.current_frame = 0
 		game.reset_animation.is_active = true
 		game.current_score = 0
+
+		// turn off all floating nukes
+		for pu_nuke in &game.nuke_power_ups
+		{
+			pu_nuke.animation.is_active = false
+		}
 	}
 
 	// animation will only run if active and unfinished
-	game.reset_animation.maybe_run = proc()
+	game.reset_animation.maybe_run = proc(_index: int = 0)
 	{
 		// finished animation
 		if game.reset_animation.current_frame > (len(game.reset_animation.frames) - 1)
@@ -1274,7 +1455,7 @@ create_animations :: proc()
 
 			frame := &game.reset_animation.frames[game.reset_animation.current_frame]
 
-			frame.action()
+			frame.action(_index)
 
 			frame.timer -= TARGET_DELTA_TIME
 
@@ -1292,7 +1473,7 @@ create_animations :: proc()
 	game.reset_animation.frames[0] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
-		action = proc() {
+		action = proc(_index: int) {
 			// prevent stage reset from continuing to run b/c player health == 0
 			game.is_restarting = true
 			// we want the player hidden until the reset is complete
@@ -1303,7 +1484,7 @@ create_animations :: proc()
 	game.reset_animation.frames[1] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
-		action = proc() {
+		action = proc(_index: int) {
 
 			msg := game.texts[TextId.Loading]
 			msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
@@ -1328,14 +1509,14 @@ create_animations :: proc()
 	game.fade_animation.current_frame = 0
 	game.fade_animation.is_active = false
 
-	game.fade_animation.start = proc()
+	game.fade_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil)
 	{
 		game.overlay_alpha = 0
 		game.fade_animation.current_frame = 0
 		game.fade_animation.is_active = true
 	}
 
-	game.fade_animation.maybe_run = proc()
+	game.fade_animation.maybe_run = proc(_index: int = 0)
 	{
 		if game.fade_animation.current_frame > (len(game.fade_animation.frames) - 1)
 		{
@@ -1348,7 +1529,7 @@ create_animations :: proc()
 
 			frame := &game.fade_animation.frames[game.fade_animation.current_frame]
 
-			frame.action()
+			frame.action(_index)
 
 			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
 			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, game.overlay_alpha)
@@ -1367,7 +1548,7 @@ create_animations :: proc()
 	game.fade_animation.frames[0] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
-		action = proc() {
+		action = proc(_index: int) {
 			new_alpha := game.overlay_alpha + 5
 
 			// check overflow
@@ -1383,7 +1564,7 @@ create_animations :: proc()
 	game.fade_animation.frames[1] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
-		action = proc() {
+		action = proc(_index: int) {
 			game.overlay_alpha = 255
 		},
 	}
@@ -1391,7 +1572,7 @@ create_animations :: proc()
 	game.fade_animation.frames[2] = Frame{
 		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
-		action = proc() {
+		action = proc(_index: int) {
 			new_alpha := game.overlay_alpha - 5
 
 			// check underflow
