@@ -19,7 +19,7 @@ WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 HITBOXES_VISIBLE :: false
 
-BACKGROUND_SPEED :: 300
+BACKGROUND_SPEED :: 100
 
 PLAYER_SPEED : f64 : 250 // pixels per second
 LASER_SPEED : f64 : 500
@@ -1326,7 +1326,7 @@ reset_entities :: proc()
 
 	for drone in &game.drones
 	{
-		random_speed := rand.float64_range(BACKGROUND_SPEED + 50, BACKGROUND_SPEED + 200)
+		random_speed := rand.float64_range(350, 500)
 		drone.health = 0
 		drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
 		drone.dx = random_speed
@@ -1443,7 +1443,7 @@ create_entities :: proc()
 		}
 
 		// randomize speed to make things more interesting
-		random_speed := rand.float64_range(BACKGROUND_SPEED + 50, BACKGROUND_SPEED + 200)
+		random_speed := rand.float64_range(350, 500)
 
 		game.drones[index] = Entity{
 			dest = destination,
