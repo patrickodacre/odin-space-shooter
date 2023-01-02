@@ -28,15 +28,26 @@ NUM_OF_LASERS :: 100
 
 DRONE_SPAWN_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1 // 1 sec
 NUM_OF_DRONES :: 5
+NUM_OF_EXPLOSIONS :: 10
 
 DRONE_LASER_COOLDOWN_TIMER_SINGLE : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2)
-DRONE_LASER_COOLDOWN_TIMER_ALL : f64 : TARGET_DELTA_TIME * 5
+DRONE_LASER_COOLDOWN_TIMER_ALL : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 3)
 NUM_OF_DRONE_LASERS :: 2
+
+MAX_NUKES :: 10
+NUKE_SPEED : f64 : 175
+NUKE_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND // 1 second
+NUM_OF_NUKE_EXPLOSIONS :: 10
+NUM_OF_NUKES :: 10
+NUM_NUKE_PU :: 15
+PU_SPEED : f64 : 200
 
 STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 
 // each frame of an explosion is rendered for X frames
 FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
+FRAME_TIMER_NUKE_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 2
+
 
 Game :: struct
 {
@@ -86,10 +97,24 @@ Game :: struct
 	drone_laser_cooldown : f64,
 
 	effect_explosion_frames: [11]^SDL.Texture,
-	explosions: [NUM_OF_DRONES * 2]Explosion,
+	explosions: [NUM_OF_EXPLOSIONS]Explosion,
+
+	// source rects for the sprite sheet
+	nuke_sprite_sheet: ^SDL.Texture,
+	effect_nuke_explosion_frames: [79]SDL.Rect,
+	nuke_explosions: [NUM_OF_NUKE_EXPLOSIONS]Explosion,
 
 	nuke_power_up_tex: ^SDL.Texture,
-	nuke_power_ups: [10]NukePowerUp,
+	nuke_power_ups: [NUM_NUKE_PU]NukePowerUp,
+	player_nukes : int,
+
+	fire_nuke: bool,
+	nuke_tex: ^SDL.Texture,
+	loaded_nuke_tex: ^SDL.Texture,
+	loaded_nuke_dest: SDL.Rect,
+	nukes: [NUM_OF_NUKES]NukeEntity,
+	nuke_cooldown : f64,
+
 
 
 	background_textures: [Background]^SDL.Texture,
@@ -116,8 +141,8 @@ Animation :: struct
 	is_active: bool,
 	current_frame: int,
 	frames: [dynamic]Frame,
-	maybe_run: proc(index: int),
-	start: proc(index: int, dest: ^SDL.Rect),
+	maybe_run: proc(index: int = 0),
+	start: proc(index: int = 0, dest: ^SDL.Rect = nil, dx: f64 = 0),
 }
 
 Frame :: struct
@@ -161,6 +186,16 @@ BackgroundSection :: struct
 	dest: SDL.Rect,
 }
 
+NukeExplosion :: struct
+{
+	source: SDL.Rect,
+	dest: SDL.Rect,
+	dx: f64,
+	frame: int,
+	frame_timer: f64,
+	is_active: bool,
+}
+
 Explosion :: struct
 {
 	dest: SDL.Rect,
@@ -179,6 +214,17 @@ NukePowerUp :: struct
 	animation: Animation,
 	counter: int,
 	alpha: u8,
+}
+
+NukeEntity :: struct
+{
+	dest: SDL.Rect,
+	dx: f64,
+	dy: f64,
+	health: int,
+	frame: int,
+	current_frame: int,
+	counter: int,
 }
 
 Entity :: struct
@@ -200,6 +246,8 @@ game := Game{
 	overlay_alpha = 0,
 	is_invincible = false,
 	stage_reset_timer = STAGE_RESET_TIMER,
+
+	loaded_nuke_dest = SDL.Rect{},
 
 	current_score = 0,
 }
@@ -312,6 +360,7 @@ main :: proc()
 		game.up = state[SDL.Scancode.W] > 0
 		game.down = state[SDL.Scancode.S] > 0
 		game.fire = state[SDL.Scancode.SPACE] > 0
+		game.fire_nuke = state[SDL.Scancode.N] > 0
 
 		// 2. Handle any input events :: quit, pause, fire weapons?
 		if SDL.PollEvent(&event)
@@ -341,8 +390,8 @@ main :: proc()
 					case .SPACE:
 						if game.screen == Screen.Home
 						{
-							game.begin_stage_animation.start(0, nil)
-							game.fade_animation.start(0, nil)
+							game.begin_stage_animation.start()
+							game.fade_animation.start()
 							game.is_render_sub_title = false
 						}
 				}
@@ -402,13 +451,42 @@ main :: proc()
 			// 5. Fire new lasers + render
 			// 6. Respawn new drones + render
 
-			// Player Lasers -- check collisions -> render
+			// Render Lasers -- check collisions -> render
 			for laser in &game.lasers
 			{
 
 				if laser.health == 0
 				{
 					continue
+				}
+
+				detect_shoot_nuke : for nuke in &game.nukes
+				{
+
+					if nuke.health == 0 do continue
+
+					hit := collision(
+						laser.dest.x,
+						laser.dest.y,
+						laser.dest.w,
+						laser.dest.h,
+
+						nuke.dest.x,
+						nuke.dest.y,
+						nuke.dest.w,
+						nuke.dest.h,
+						)
+
+					if hit
+					{
+						nuke.health = 0
+
+						// TODO - explode anything that enters the Nuke's
+						// destruction radius
+						explode_nuke(&nuke)
+
+						laser.health = 0
+					}
 				}
 
 				detect_collision : for drone in &game.drones
@@ -439,16 +517,16 @@ main :: proc()
 				    	explode_drone(&drone)
 				    	game.current_score += 1
 
-				    	spawn_pu_nuke: for index in 0..<10
+				    	spawn_nuke_pu: for index in 0..<NUM_NUKE_PU
 				    	{
 
-					    	pu_nuke := &game.nuke_power_ups[index].animation
+					    	pu := &game.nuke_power_ups[index].animation
 
-					    	if !pu_nuke.is_active
+					    	if !pu.is_active
 					    	{
-					    		pu_nuke.start(index, &drone.dest)
+					    		pu.start(index, &drone.dest, drone.dx)
 
-					    		break spawn_pu_nuke
+					    		break spawn_nuke_pu
 					    	}
 
 				    	}
@@ -472,7 +550,66 @@ main :: proc()
 				}
 			}
 
-			// Drone Lasers -- check collisions -> render
+			// Render Nukes
+			for nuke in &game.nukes
+			{
+
+				if nuke.health == 0
+				{
+					continue
+				}
+
+				detect_nuke_collision : for drone in &game.drones
+				{
+					if drone.health == 0
+					{
+						continue
+					}
+
+					hit := collision(
+						nuke.dest.x,
+						nuke.dest.y,
+						nuke.dest.w,
+						nuke.dest.h,
+
+						drone.dest.x,
+						drone.dest.y,
+						drone.dest.w,
+						drone.dest.h,
+						)
+
+					if hit
+					{
+
+						drone.health = 0
+				    	explode_drone(&drone)
+
+						nuke.health = 0
+						explode_nuke(&nuke)
+
+				    	game.current_score += 1
+
+						break detect_nuke_collision
+					}
+
+				}
+
+				nuke.dest.x += i32(get_delta_motion(nuke.dx))
+
+				if nuke.dest.x > WINDOW_WIDTH
+				{
+					nuke.health = 0
+				}
+
+				if nuke.health > 0
+				{
+					when HITBOXES_VISIBLE do render_hitbox(&nuke.dest)
+					SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &nuke.dest)
+				}
+			}
+
+
+			// Render Drone Lasers -- check collisions -> render
 			for laser, idx in &game.drone_lasers
 			{
 
@@ -705,7 +842,7 @@ main :: proc()
 					SDL.RenderDrawRect(game.renderer, &r)
 				}
 
-				// FIRE PLAYER LASERS
+				// Fire Lasers
 				// NOTE :: firing new lasers AFTER
 				// Collisions have been detected; otherwise,
 				// collisions may be true for lasers that aren't rendered, yet.
@@ -733,6 +870,31 @@ main :: proc()
 					}
 				}
 
+				// Fire Nuke
+				if game.fire_nuke && game.player_nukes > 0 && game.nuke_cooldown < 0
+				{
+					// find a nuke:
+					fire_nuke : for nuke in &game.nukes
+					{
+						// find the first one available
+						if nuke.health == 0
+						{
+							nuke.dest.x = game.player.dest.x + 20
+							nuke.dest.y = game.player.dest.y
+							nuke.health = 1
+							// reset the cooldown to prevent firing too rapidly
+							game.nuke_cooldown = NUKE_COOLDOWN_TIMER
+
+							SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &nuke.dest)
+							MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
+
+							game.player_nukes -= 1
+
+							break fire_nuke
+						}
+					}
+				}
+
 			}
 
 			// Player Dead
@@ -749,14 +911,183 @@ main :: proc()
 				if game.stage_reset_timer < 0
 				{
 
-					game.reset_animation.start(0, nil)
-					game.begin_stage_animation.start(0, nil)
-					game.fade_animation.start(0, nil)
+					game.reset_animation.start()
+					game.begin_stage_animation.start()
+					game.fade_animation.start()
 				}
 
 			}
 
-			// Explosions
+			// Render Nuke Explosions
+			for x in &game.nuke_explosions
+			{
+				if x.frame > 78
+				{
+					x.is_active = false
+				}
+
+				if !x.is_active do continue
+
+				source_rect := game.effect_nuke_explosion_frames[x.frame]
+
+				// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
+				x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+
+				// if the explosion is relatively fresh
+				// we'll destroy any drones, lasers, and drone lasers
+				// that pass through
+				if x.frame < 50
+				{
+
+					hitbox_area := SDL.Rect{
+						x = (x.dest.x + (x.dest.w / 4)),
+						y = (x.dest.y + (x.dest.h / 4)),
+						w = (x.dest.w - (x.dest.w / 2)),
+						h = (x.dest.h - (x.dest.h / 2)),
+					}
+
+					when HITBOXES_VISIBLE do render_hitbox(&hitbox_area)
+
+					// check hit player
+					// don't blow yourself up!
+					if game.player.health > 0 && !(game.is_invincible)
+					{
+						hit := collision(
+							game.player.dest.x,
+							game.player.dest.y,
+							game.player.dest.w,
+							game.player.dest.h,
+
+							hitbox_area.x,
+							hitbox_area.y,
+							hitbox_area.w,
+							hitbox_area.h,
+							)
+
+						if hit
+						{
+							game.player.health = 0
+							explode_player(&game.player)
+						}
+					}
+
+					for nuke in &game.nukes
+					{
+						if nuke.health == 0 do continue
+
+						hit := collision(
+							nuke.dest.x,
+							nuke.dest.y,
+							nuke.dest.w,
+							nuke.dest.h,
+
+							hitbox_area.x,
+							hitbox_area.y,
+							hitbox_area.w,
+							hitbox_area.h,
+							)
+
+						if hit
+						{
+							nuke.health = 0
+							explode_nuke(&nuke)
+						}
+					}
+
+					for drone in &game.drones
+					{
+						if drone.health == 0 do continue
+
+						hit := collision(
+							drone.dest.x,
+							drone.dest.y,
+							drone.dest.w,
+							drone.dest.h,
+
+							hitbox_area.x,
+							hitbox_area.y,
+							hitbox_area.w,
+							hitbox_area.h,
+							)
+
+						if hit
+						{
+							drone.health = 0
+							explode_drone(&drone)
+						}
+					}
+
+					for laser in &game.lasers
+					{
+						if laser.health == 0 do continue
+
+						hit := collision(
+							laser.dest.x,
+							laser.dest.y,
+							laser.dest.w,
+							laser.dest.h,
+
+							hitbox_area.x,
+							hitbox_area.y,
+							hitbox_area.w,
+							hitbox_area.h,
+							)
+
+						if hit
+						{
+							laser.health = 0
+							x := laser.dest.x - (laser.dest.w / 2)
+							y := laser.dest.y - (laser.dest.h / 2)
+							explode(x, y, laser.dx)
+						}
+					}
+
+
+					for laser in &game.drone_lasers
+					{
+						if laser.health == 0 do continue
+
+						hit := collision(
+							laser.dest.x,
+							laser.dest.y,
+							laser.dest.w,
+							laser.dest.h,
+
+							hitbox_area.x,
+							hitbox_area.y,
+							hitbox_area.w,
+							hitbox_area.h,
+							)
+
+						if hit
+						{
+							laser.health = 0
+							x := laser.dest.x - (laser.dest.w / 2)
+							y := laser.dest.y - (laser.dest.h / 2)
+							explode(x, y, laser.dx)
+						}
+					}
+
+
+
+				}
+
+				SDL.RenderCopy(game.renderer, game.nuke_sprite_sheet, &source_rect, &x.dest)
+
+				x.frame_timer -= TARGET_DELTA_TIME
+
+				// switch frames
+				if x.frame_timer < 0
+				{
+					// restart timer
+					x.frame_timer = FRAME_TIMER_NUKE_EXPLOSIONS
+					x.frame += 1
+				}
+
+			}
+
+
+			// Render Explosions
 			for x in &game.explosions
 			{
 				// there are 11 sprites
@@ -818,10 +1149,30 @@ main :: proc()
 				prev_chars_w += char.dest.w + char_spacing
 			}
 
+			nuke_starting_x : i32 = 10
+			nuke_starting_y : i32 = 30
 
+			nuke_spacing : i32 = 2
+			prev_nukes_w : i32 = 0
+
+			if game.player_nukes > 0
+			{
+
+				for i := 0; i < game.player_nukes; i += 1
+				{
+					game.loaded_nuke_dest.x = nuke_starting_x + prev_nukes_w
+					game.loaded_nuke_dest.y = nuke_starting_y
+
+					SDL.RenderCopy(game.renderer, game.loaded_nuke_tex, nil, &game.loaded_nuke_dest)
+
+					prev_nukes_w += game.loaded_nuke_dest.w + nuke_spacing
+				}
+
+			}
 
 			// TIMERS
 			game.laser_cooldown -= TARGET_DELTA_TIME
+			game.nuke_cooldown -= TARGET_DELTA_TIME
 			game.drone_spawn_cooldown -= TARGET_DELTA_TIME
 			game.drone_laser_cooldown -= TARGET_DELTA_TIME
 
@@ -829,15 +1180,15 @@ main :: proc()
 		}
 
 
-		game.begin_stage_animation.maybe_run(0)
-		game.fade_animation.maybe_run(0)
-		game.reset_animation.maybe_run(0)
+		game.begin_stage_animation.maybe_run()
+		game.fade_animation.maybe_run()
+		game.reset_animation.maybe_run()
 
 
-    	for index in 0..<10
+    	for index in 0..<NUM_NUKE_PU
     	{
-	    	pu_nuke := &game.nuke_power_ups[index]
-	    	pu_nuke.animation.maybe_run(index)
+	    	nuke_pu := &game.nuke_power_ups[index]
+	    	nuke_pu.animation.maybe_run(index)
     	}
 
 		if game.is_render_title
@@ -946,6 +1297,7 @@ collision :: proc(x1, y1, w1, h1, x2, y2, w2, h2: i32) -> bool
 reset_timers :: proc()
 {
 	game.laser_cooldown = LASER_COOLDOWN_TIMER
+	game.nuke_cooldown = NUKE_COOLDOWN_TIMER
 	game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
 	game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
 	game.stage_reset_timer = STAGE_RESET_TIMER
@@ -955,6 +1307,12 @@ reset_entities :: proc()
 {
 	game.player.dest.x = 20
 	game.player.dest.y = WINDOW_HEIGHT / 2
+	game.player_nukes = 0
+
+	for nuke in &game.nukes
+	{
+		nuke.health = 0
+	}
 
 	for laser in &game.lasers
 	{
@@ -975,10 +1333,21 @@ reset_entities :: proc()
 		drone.dy = random_speed
 	}
 
+	for explosion in &game.nuke_explosions
+	{
+		explosion.frame = 0
+		explosion.is_active = false
+	}
+
 	for explosion in &game.explosions
 	{
 		explosion.frame = 0
 		explosion.is_active = false
+	}
+
+	for nuke_pu in &game.nuke_power_ups
+	{
+		nuke_pu.animation.is_active = false
 	}
 }
 
@@ -1002,6 +1371,32 @@ create_entities :: proc()
 		dx = PLAYER_SPEED,
 		dy = PLAYER_SPEED,
 		health = 1,
+	}
+
+	nuke_tex := SDL_Image.LoadTexture(game.renderer, "assets/nuke.png")
+	assert(nuke_tex != nil, SDL.GetErrorString())
+	nuke_w : i32
+	nuke_h : i32
+	SDL.QueryTexture(nuke_tex, nil, nil, &nuke_w, &nuke_h)
+
+	game.nuke_tex = nuke_tex
+
+	for index in 0..<NUM_OF_NUKES
+	{
+		destination := SDL.Rect{
+			w = nuke_w / 2,
+			h = nuke_h / 2,
+		}
+
+		game.nukes[index] = NukeEntity{
+			dest = destination,
+			dx = NUKE_SPEED,
+			dy = NUKE_SPEED,
+			health = 0,
+			frame = 0,
+			current_frame = 0,
+			counter = 0,
+		}
 	}
 
 	laser_texture := SDL_Image.LoadTexture(game.renderer, "assets/bullet_red_2.png")
@@ -1084,6 +1479,49 @@ create_entities :: proc()
 		}
 	}
 
+	// nuke_explosions
+	game.nuke_sprite_sheet = SDL_Image.LoadTexture(game.renderer, "assets/nuke_x_1.png")
+	assert(game.nuke_sprite_sheet != nil, SDL.GetErrorString())
+
+	starting_x : i32 = 300
+	starting_y : i32 = 0
+
+	for i in 0..<79
+	{
+		// end of row
+		if i %% 13 == 0
+		{
+			starting_y += 300
+			starting_x = 0
+		}
+
+		source := SDL.Rect{
+			x = starting_x,
+			y = starting_y,
+			w = 300,
+			h = 300,
+		}
+
+		game.effect_nuke_explosion_frames[i] = source
+
+		starting_x += 300
+	}
+
+
+	for index in 0..<NUM_OF_NUKE_EXPLOSIONS
+	{
+		game.nuke_explosions[index] = Explosion{
+			dest = SDL.Rect{
+				x = 100,
+				y = 100,
+				w = 600,
+				h = 600,
+			},
+			// all explosions start with the FIRST sprite
+			frame = 0,
+			is_active = false,
+		}
+	}
 
 	// Explosions
 	for i in 0..<11
@@ -1120,14 +1558,14 @@ create_entities :: proc()
 	// item animation - creates an item that will blink after a few seconds and eventually disappear
 	game.nuke_power_up_tex = SDL_Image.LoadTexture(game.renderer, "assets/pu_nuke.png")
 	assert(game.nuke_power_up_tex != nil, SDL.GetErrorString())
-	pu_nuke_w : i32
-	pu_nuke_h : i32
-	SDL.QueryTexture(game.nuke_power_up_tex, nil, nil, &pu_nuke_w, &pu_nuke_h)
+	pu_width : i32
+	pu_height : i32
+	SDL.QueryTexture(game.nuke_power_up_tex, nil, nil, &pu_width, &pu_height)
 
-	for index in 0..<10
+	for index in 0..<NUM_NUKE_PU
 	{
 		game.nuke_power_ups[index] = NukePowerUp{
-			dest = SDL.Rect{w = (pu_nuke_w / 7), h = (pu_nuke_h / 7)},
+			dest = SDL.Rect{w = (pu_width / 7), h = (pu_height / 7)},
 			animation = Animation{
 				is_active = false,
 				current_frame = 0,
@@ -1138,30 +1576,54 @@ create_entities :: proc()
 
 		pu := &game.nuke_power_ups[index].animation
 
-		pu.start = proc(index: int, dest: ^SDL.Rect) {
+		pu.start = proc(index: int, dest: ^SDL.Rect, dx: f64) {
 			pu := &game.nuke_power_ups[index]
 			pu.alpha = 255
 			pu.counter = 0
 			pu.dest.x = dest.x
 			pu.dest.y = dest.y
+			pu.dx = dx
 			pu.animation.current_frame = 0
 			pu.animation.is_active = true
 		}
 
 		pu.maybe_run = proc(index: int) {
-			pu := &game.nuke_power_ups[index].animation
+			pu := &game.nuke_power_ups[index]
 
-			if pu.current_frame > 2
+			if pu.animation.current_frame > 2
 			{
-				pu.is_active = false
+				pu.animation.is_active = false
 			}
 
-			if pu.is_active
+			if pu.animation.is_active
 			{
 
-				frame := &pu.frames[pu.current_frame]
+				frame := &pu.animation.frames[pu.animation.current_frame]
 
 				frame.action(index)
+
+				hit := collision(
+					game.player.dest.x,
+					game.player.dest.y,
+					game.player.dest.w,
+					game.player.dest.h,
+
+					pu.dest.x,
+					pu.dest.y,
+					pu.dest.w,
+					pu.dest.h,
+					)
+
+				if hit
+				{
+					pu.animation.is_active = false
+
+					if game.player_nukes < MAX_NUKES
+					{
+						game.player_nukes += 1
+					}
+				}
+
 
 				frame.timer -= TARGET_DELTA_TIME
 
@@ -1169,7 +1631,7 @@ create_entities :: proc()
 				if frame.timer < 0
 				{
 					frame.timer = frame.duration
-					pu.current_frame += 1
+					pu.animation.current_frame += 1
 				}
 
 			}
@@ -1182,6 +1644,9 @@ create_entities :: proc()
 			action = proc(index: int) {
 				pu := &game.nuke_power_ups[index]
 
+				pu.dest.x -= i32(get_delta_motion(pu.dx / 2))
+				pu.dest.y -= i32(get_delta_motion(pu.dx / 4))
+
 				SDL.SetTextureAlphaMod(game.nuke_power_up_tex, pu.alpha)
 				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &pu.dest)
 			},
@@ -1192,8 +1657,6 @@ create_entities :: proc()
 			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 5,
 			action = proc(index: int) {
 				pu := &game.nuke_power_ups[index]
-
-				d := game.nuke_power_ups[index].dest
 
 				// blinking
 				if pu.counter > 15
@@ -1211,8 +1674,11 @@ create_entities :: proc()
 
 				}
 
+				pu.dest.x -= i32(get_delta_motion(pu.dx / 2))
+				pu.dest.y += i32(get_delta_motion(pu.dx / 4))
+
 				SDL.SetTextureAlphaMod(game.nuke_power_up_tex, pu.alpha)
-				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &d)
+				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &pu.dest)
 
 				pu.counter += 1
 
@@ -1241,6 +1707,9 @@ create_entities :: proc()
 
 				}
 
+				pu.dest.x += i32(get_delta_motion(pu.dx / 2))
+				pu.dest.y -= i32(get_delta_motion(pu.dx / 4))
+
 				SDL.SetTextureAlphaMod(game.nuke_power_up_tex, pu.alpha)
 				SDL.RenderCopy(game.renderer, game.nuke_power_up_tex, nil, &pu.dest)
 
@@ -1263,9 +1732,34 @@ caprintf :: proc(format: string, args: ..any) -> cstring {
     return cstring(raw_data(s))
 }
 
+explode_nuke :: proc(e: ^NukeEntity)
+{
+
+	// find a free Explosion entity
+	find_nuke_explosion : for _x in &game.nuke_explosions
+	{
+		if !_x.is_active
+		{
+			// divide by 2 so we place our explosion
+			// at the center of the destroyed entity
+			_x.dest.x = e.dest.x - (_x.dest.w / 2)
+			_x.dest.y = e.dest.y - (_x.dest.h/ 2)
+			_x.dx = e.dx // explode at the speed at which the destroyed entity was moving
+			_x.is_active = true
+			_x.frame = 0
+			_x.frame_timer = FRAME_TIMER_NUKE_EXPLOSIONS
+
+			break find_nuke_explosion
+		}
+	}
+
+
+	MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
+}
+
 explode_player :: proc(e: ^Entity)
 {
-	explode(e)
+	explode(e.dest.x, e.dest.y, e.dx)
 
 	// https://wiki.libsdl.org/SDL_mixer/Mix_PlayChannel
 	// -1 => first available channel
@@ -1276,25 +1770,26 @@ explode_player :: proc(e: ^Entity)
 
 explode_drone :: proc(e: ^Entity)
 {
-	explode(e)
+	explode(e.dest.x, e.dest.y, e.dx)
+
 	MIX.PlayChannel(-1, game.sounds[SoundId.DroneExplosion], 0)
 }
 
-explode :: proc(e: ^Entity)
+explode :: proc(x, y: i32, dx: f64)
 {
 	// find a free Explosion entity
-	find_explosion : for x in &game.explosions
+	find_explosion : for _x in &game.explosions
 	{
-		if !x.is_active
+		if !_x.is_active
 		{
 			// divide by 2 so we place our explosion
 			// at the center of the destroyed entity
-			x.dest.x = e.dest.x - (x.dest.w / 2)
-			x.dest.y = e.dest.y - (x.dest.h / 2)
-			x.dx = e.dx // explode at the speed at which the destroyed entity was moving
-			x.is_active = true
-			x.frame = 0
-			x.frame_timer = FRAME_TIMER_EXPLOSIONS
+			_x.dest.x = x - (_x.dest.w / 2)
+			_x.dest.y = y - (_x.dest.h / 2)
+			_x.dx = dx // explode at the speed at which the destroyed entity was moving
+			_x.is_active = true
+			_x.frame = 0
+			_x.frame_timer = FRAME_TIMER_EXPLOSIONS
 
 			break find_explosion
 		}
@@ -1319,6 +1814,13 @@ create_statics :: proc()
 
 		game.chars[c] = make_text(cstring(raw_data(str)))
 	}
+
+	// Loaded Nukes
+	game.loaded_nuke_tex = SDL_Image.LoadTexture(game.renderer, "assets/loaded_nuke.png")
+	assert(game.loaded_nuke_tex != nil, SDL.GetErrorString())
+	SDL.QueryTexture(game.loaded_nuke_tex, nil, nil, &game.loaded_nuke_dest.w, &game.loaded_nuke_dest.h)
+	game.loaded_nuke_dest.w /= 2
+	game.loaded_nuke_dest.h /= 2
 
 	// Background
 	stars := SDL_Image.LoadTexture(game.renderer, "assets/bg_stars_1.png")
@@ -1358,7 +1860,7 @@ create_animations :: proc()
 	a.frames = make([dynamic]Frame, 3, 3)
 	a.current_frame = 0
 	a.is_active = false
-	a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil)
+	a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0)
 	{
 		game.begin_stage_animation.current_frame = 0
 		game.begin_stage_animation.is_active = true
@@ -1426,16 +1928,16 @@ create_animations :: proc()
 	game.reset_animation.frames = make([dynamic]Frame, 2, 2)
 	game.reset_animation.current_frame = 0
 	game.reset_animation.is_active = false
-	game.reset_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil)
+	game.reset_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0)
 	{
 		game.reset_animation.current_frame = 0
 		game.reset_animation.is_active = true
 		game.current_score = 0
 
-		// turn off all floating nukes
-		for pu_nuke in &game.nuke_power_ups
+		// turn off all floating nukes right away
+		for nuke_pu in &game.nuke_power_ups
 		{
-			pu_nuke.animation.is_active = false
+			nuke_pu.animation.is_active = false
 		}
 	}
 
@@ -1509,7 +2011,7 @@ create_animations :: proc()
 	game.fade_animation.current_frame = 0
 	game.fade_animation.is_active = false
 
-	game.fade_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil)
+	game.fade_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0)
 	{
 		game.overlay_alpha = 0
 		game.fade_animation.current_frame = 0
