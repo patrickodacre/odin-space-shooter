@@ -34,13 +34,11 @@ DRONE_LASER_COOLDOWN_TIMER_SINGLE : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND
 DRONE_LASER_COOLDOWN_TIMER_ALL : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 3)
 NUM_OF_DRONE_LASERS :: 2
 
-MAX_NUKES :: 10
+NUM_OF_NUKES :: 10
 NUKE_SPEED : f64 : 175
 NUKE_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND // 1 second
 NUM_OF_NUKE_EXPLOSIONS :: 10
-NUM_OF_NUKES :: 10
 NUM_NUKE_PU :: 15
-PU_SPEED : f64 : 200
 
 STAGE_RESET_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 3 // 3 seconds
 
@@ -224,7 +222,11 @@ NukeEntity :: struct
 	health: int,
 	frame: int,
 	current_frame: int,
+	// counter: int,
+
+	animation: Animation,
 	counter: int,
+	alpha: u8,
 }
 
 Entity :: struct
@@ -1014,6 +1016,8 @@ main :: proc()
 						{
 							drone.health = 0
 							explode_drone(&drone)
+
+					    	game.current_score += 1
 						}
 					}
 
@@ -1170,19 +1174,9 @@ main :: proc()
 
 			}
 
-			// TIMERS
-			game.laser_cooldown -= TARGET_DELTA_TIME
-			game.nuke_cooldown -= TARGET_DELTA_TIME
-			game.drone_spawn_cooldown -= TARGET_DELTA_TIME
-			game.drone_laser_cooldown -= TARGET_DELTA_TIME
-
 		// end game.screen == Screen.Play
 		}
 
-
-		game.begin_stage_animation.maybe_run()
-		game.fade_animation.maybe_run()
-		game.reset_animation.maybe_run()
 
 
     	for index in 0..<NUM_NUKE_PU
@@ -1190,6 +1184,10 @@ main :: proc()
 	    	nuke_pu := &game.nuke_power_ups[index]
 	    	nuke_pu.animation.maybe_run(index)
     	}
+
+		game.begin_stage_animation.maybe_run()
+		game.fade_animation.maybe_run()
+		game.reset_animation.maybe_run()
 
 		if game.is_render_title
 		{
@@ -1213,6 +1211,12 @@ main :: proc()
 
 
 		// ... end LOOP code
+
+		// TIMERS
+		game.laser_cooldown -= TARGET_DELTA_TIME
+		game.nuke_cooldown -= TARGET_DELTA_TIME
+		game.drone_spawn_cooldown -= TARGET_DELTA_TIME
+		game.drone_laser_cooldown -= TARGET_DELTA_TIME
 
 
 
@@ -1564,19 +1568,25 @@ create_entities :: proc()
 
 	for index in 0..<NUM_NUKE_PU
 	{
+		// initialize our NukePowerUp
 		game.nuke_power_ups[index] = NukePowerUp{
-			dest = SDL.Rect{w = (pu_width / 7), h = (pu_height / 7)},
+			dest = SDL.Rect{
+				w = (pu_width / 7),
+				h = (pu_height / 7),
+			},
 			animation = Animation{
 				is_active = false,
 				current_frame = 0,
 				frames = make([dynamic]Frame, 3, 3),
-
 			},
 		}
 
+		// fill out our Animation:
 		pu := &game.nuke_power_ups[index].animation
 
 		pu.start = proc(index: int, dest: ^SDL.Rect, dx: f64) {
+			// Odin is not object oriented, we need `index` so we can
+			// identify the correct NukePowerUp object in our array.
 			pu := &game.nuke_power_ups[index]
 			pu.alpha = 255
 			pu.counter = 0
@@ -1600,8 +1610,6 @@ create_entities :: proc()
 
 				frame := &pu.animation.frames[pu.animation.current_frame]
 
-				frame.action(index)
-
 				hit := collision(
 					game.player.dest.x,
 					game.player.dest.y,
@@ -1618,12 +1626,13 @@ create_entities :: proc()
 				{
 					pu.animation.is_active = false
 
-					if game.player_nukes < MAX_NUKES
+					if game.player_nukes < NUM_OF_NUKES
 					{
 						game.player_nukes += 1
 					}
 				}
 
+				frame.action(index)
 
 				frame.timer -= TARGET_DELTA_TIME
 
@@ -1934,11 +1943,6 @@ create_animations :: proc()
 		game.reset_animation.is_active = true
 		game.current_score = 0
 
-		// turn off all floating nukes right away
-		for nuke_pu in &game.nuke_power_ups
-		{
-			nuke_pu.animation.is_active = false
-		}
 	}
 
 	// animation will only run if active and unfinished
