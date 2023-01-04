@@ -18,6 +18,7 @@ TARGET_DELTA_TIME :: f64(1000) / FRAMES_PER_SECOND
 WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 HITBOXES_VISIBLE :: false
+PLAY_SOUND :: true
 
 BACKGROUND_SPEED :: 100
 
@@ -29,6 +30,8 @@ NUM_OF_LASERS :: 100
 DRONE_SPAWN_COOLDOWN_TIMER : f64 : TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1 // 1 sec
 NUM_OF_DRONES :: 5
 NUM_OF_EXPLOSIONS :: 10
+DRONE_MIN_SPEED : f64 : 250
+DRONE_MAX_SPEED : f64 : 350
 
 DRONE_LASER_COOLDOWN_TIMER_SINGLE : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2)
 DRONE_LASER_COOLDOWN_TIMER_ALL : f64 : TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 3)
@@ -140,7 +143,7 @@ Animation :: struct
 	current_frame: int,
 	frames: [dynamic]Frame,
 	maybe_run: proc(index: int = 0),
-	start: proc(index: int = 0, dest: ^SDL.Rect = nil, dx: f64 = 0),
+	start: proc(index: int = 0, dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0),
 }
 
 Frame :: struct
@@ -220,13 +223,10 @@ NukeEntity :: struct
 	dx: f64,
 	dy: f64,
 	health: int,
-	frame: int,
-	current_frame: int,
-	// counter: int,
-
 	animation: Animation,
 	counter: int,
 	alpha: u8,
+	is_exploding: bool,
 }
 
 Entity :: struct
@@ -345,7 +345,7 @@ main :: proc()
 
 	// https://wiki.libsdl.org/SDL_mixer/Mix_PlayMusic
 	// -1 => infinite loop
-	MIX.PlayMusic(game.bg_sound_fx, -1)
+	if PLAY_SOUND do MIX.PlayMusic(game.bg_sound_fx, -1)
 
 	game_loop : for
 	{
@@ -462,35 +462,6 @@ main :: proc()
 					continue
 				}
 
-				detect_shoot_nuke : for nuke in &game.nukes
-				{
-
-					if nuke.health == 0 do continue
-
-					hit := collision(
-						laser.dest.x,
-						laser.dest.y,
-						laser.dest.w,
-						laser.dest.h,
-
-						nuke.dest.x,
-						nuke.dest.y,
-						nuke.dest.w,
-						nuke.dest.h,
-						)
-
-					if hit
-					{
-						nuke.health = 0
-
-						// TODO - explode anything that enters the Nuke's
-						// destruction radius
-						explode_nuke(&nuke)
-
-						laser.health = 0
-					}
-				}
-
 				detect_collision : for drone in &game.drones
 				{
 					if drone.health == 0
@@ -513,7 +484,6 @@ main :: proc()
 					if hit
 					{
 
-						drone.health = 0
 						laser.health = 0
 
 				    	explode_drone(&drone)
@@ -552,65 +522,6 @@ main :: proc()
 				}
 			}
 
-			// Render Nukes
-			for nuke in &game.nukes
-			{
-
-				if nuke.health == 0
-				{
-					continue
-				}
-
-				detect_nuke_collision : for drone in &game.drones
-				{
-					if drone.health == 0
-					{
-						continue
-					}
-
-					hit := collision(
-						nuke.dest.x,
-						nuke.dest.y,
-						nuke.dest.w,
-						nuke.dest.h,
-
-						drone.dest.x,
-						drone.dest.y,
-						drone.dest.w,
-						drone.dest.h,
-						)
-
-					if hit
-					{
-
-						drone.health = 0
-				    	explode_drone(&drone)
-
-						nuke.health = 0
-						explode_nuke(&nuke)
-
-				    	game.current_score += 1
-
-						break detect_nuke_collision
-					}
-
-				}
-
-				nuke.dest.x += i32(get_delta_motion(nuke.dx))
-
-				if nuke.dest.x > WINDOW_WIDTH
-				{
-					nuke.health = 0
-				}
-
-				if nuke.health > 0
-				{
-					when HITBOXES_VISIBLE do render_hitbox(&nuke.dest)
-					SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &nuke.dest)
-				}
-			}
-
-
 			// Render Drone Lasers -- check collisions -> render
 			for laser, idx in &game.drone_lasers
 			{
@@ -644,7 +555,6 @@ main :: proc()
 
 						if !game.is_invincible
 						{
-							game.player.health = 0
 					    	explode_player(&game.player)
 						}
 					}
@@ -732,12 +642,10 @@ main :: proc()
 						if hit
 						{
 
-							drone.health = 0
 					    	explode_drone(&drone)
 
 							if !game.is_invincible
 							{
-								game.player.health = 0
 						    	explode_player(&game.player)
 							}
 
@@ -790,7 +698,8 @@ main :: proc()
 								game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
 
 								SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
-								MIX.PlayChannel(-1, game.sounds[SoundId.DroneLaser], 0)
+
+								if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.DroneLaser], 0)
 
 								break fire_drone_laser
 							}
@@ -865,7 +774,7 @@ main :: proc()
 							game.laser_cooldown = LASER_COOLDOWN_TIMER
 
 							SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
-							MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
 
 							break fire
 						}
@@ -876,21 +785,13 @@ main :: proc()
 				if game.fire_nuke && game.player_nukes > 0 && game.nuke_cooldown < 0
 				{
 					// find a nuke:
-					fire_nuke : for nuke in &game.nukes
+					fire_nuke : for nuke, i in &game.nukes
 					{
 						// find the first one available
-						if nuke.health == 0
+						if !nuke.animation.is_active
 						{
-							nuke.dest.x = game.player.dest.x + 20
-							nuke.dest.y = game.player.dest.y
-							nuke.health = 1
-							// reset the cooldown to prevent firing too rapidly
-							game.nuke_cooldown = NUKE_COOLDOWN_TIMER
 
-							SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &nuke.dest)
-							MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
-
-							game.player_nukes -= 1
+							nuke.animation.start(i, &game.player.dest, NUKE_SPEED)
 
 							break fire_nuke
 						}
@@ -941,14 +842,14 @@ main :: proc()
 				if x.frame < 50
 				{
 
-					hitbox_area := SDL.Rect{
+					nuke_explosion_area := SDL.Rect{
 						x = (x.dest.x + (x.dest.w / 4)),
 						y = (x.dest.y + (x.dest.h / 4)),
 						w = (x.dest.w - (x.dest.w / 2)),
 						h = (x.dest.h - (x.dest.h / 2)),
 					}
 
-					when HITBOXES_VISIBLE do render_hitbox(&hitbox_area)
+					when HITBOXES_VISIBLE do render_hitbox(&nuke_explosion_area)
 
 					// check hit player
 					// don't blow yourself up!
@@ -960,22 +861,23 @@ main :: proc()
 							game.player.dest.w,
 							game.player.dest.h,
 
-							hitbox_area.x,
-							hitbox_area.y,
-							hitbox_area.w,
-							hitbox_area.h,
+							nuke_explosion_area.x,
+							nuke_explosion_area.y,
+							nuke_explosion_area.w,
+							nuke_explosion_area.h,
 							)
 
 						if hit
 						{
-							game.player.health = 0
 							explode_player(&game.player)
 						}
 					}
 
 					for nuke in &game.nukes
 					{
-						if nuke.health == 0 do continue
+						// make sure we don't trigger this collision again and again
+						// as these frames continue to tick by
+						if nuke.health == 0 || nuke.is_exploding do continue
 
 						hit := collision(
 							nuke.dest.x,
@@ -983,16 +885,20 @@ main :: proc()
 							nuke.dest.w,
 							nuke.dest.h,
 
-							hitbox_area.x,
-							hitbox_area.y,
-							hitbox_area.w,
-							hitbox_area.h,
+							nuke_explosion_area.x,
+							nuke_explosion_area.y,
+							nuke_explosion_area.w,
+							nuke_explosion_area.h,
 							)
 
 						if hit
 						{
-							nuke.health = 0
-							explode_nuke(&nuke)
+							// is_exploding is used in this specific spot
+							// to prevent the current_frame from being reset
+							// again and again as the nuke continues to collide
+							// with the first nuke's explosion
+							nuke.is_exploding = true
+							nuke.animation.current_frame = 2
 						}
 					}
 
@@ -1006,15 +912,14 @@ main :: proc()
 							drone.dest.w,
 							drone.dest.h,
 
-							hitbox_area.x,
-							hitbox_area.y,
-							hitbox_area.w,
-							hitbox_area.h,
+							nuke_explosion_area.x,
+							nuke_explosion_area.y,
+							nuke_explosion_area.w,
+							nuke_explosion_area.h,
 							)
 
 						if hit
 						{
-							drone.health = 0
 							explode_drone(&drone)
 
 					    	game.current_score += 1
@@ -1031,10 +936,10 @@ main :: proc()
 							laser.dest.w,
 							laser.dest.h,
 
-							hitbox_area.x,
-							hitbox_area.y,
-							hitbox_area.w,
-							hitbox_area.h,
+							nuke_explosion_area.x,
+							nuke_explosion_area.y,
+							nuke_explosion_area.w,
+							nuke_explosion_area.h,
 							)
 
 						if hit
@@ -1057,10 +962,10 @@ main :: proc()
 							laser.dest.w,
 							laser.dest.h,
 
-							hitbox_area.x,
-							hitbox_area.y,
-							hitbox_area.w,
-							hitbox_area.h,
+							nuke_explosion_area.x,
+							nuke_explosion_area.y,
+							nuke_explosion_area.w,
+							nuke_explosion_area.h,
 							)
 
 						if hit
@@ -1183,6 +1088,11 @@ main :: proc()
     	{
 	    	nuke_pu := &game.nuke_power_ups[index]
 	    	nuke_pu.animation.maybe_run(index)
+    	}
+
+    	for nuke, i in &game.nukes
+    	{
+	    	nuke.animation.maybe_run(i)
     	}
 
 		game.begin_stage_animation.maybe_run()
@@ -1330,7 +1240,7 @@ reset_entities :: proc()
 
 	for drone in &game.drones
 	{
-		random_speed := rand.float64_range(350, 500)
+		random_speed := rand.float64_range(DRONE_MIN_SPEED, DRONE_MAX_SPEED)
 		drone.health = 0
 		drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
 		drone.dx = random_speed
@@ -1393,13 +1303,262 @@ create_entities :: proc()
 		}
 
 		game.nukes[index] = NukeEntity{
-			dest = destination,
+			dest = SDL.Rect{
+				w = nuke_w / 2,
+				h = nuke_h / 2,
+			},
 			dx = NUKE_SPEED,
 			dy = NUKE_SPEED,
 			health = 0,
-			frame = 0,
-			current_frame = 0,
 			counter = 0,
+			animation = Animation{
+				is_active = false,
+				current_frame = 0,
+				frames = make([dynamic]Frame, 4, 4),
+			},
+		}
+
+		n := &game.nukes[index].animation
+
+		n.start = proc(index: int, dest: ^SDL.Rect, dx: f64, starting_frame: int = 0)
+		{
+			n := &game.nukes[index]
+			n.is_exploding = false // for nuke-to-nuke explosions
+			n.health = 1
+			n.counter = 0
+			n.dest.x = dest.x
+			n.dest.y = dest.y
+			n.alpha = 255
+			n.animation.current_frame = starting_frame
+			n.animation.is_active = true
+			// timers otherwise won't be reset if the nuke
+			// collides with drone and explodes
+			n.animation.frames[0].timer = n.animation.frames[0].duration
+			n.animation.frames[1].timer = n.animation.frames[1].duration
+			n.animation.frames[2].timer = n.animation.frames[2].duration
+			n.animation.frames[3].timer = n.animation.frames[3].duration
+
+			if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
+			game.nuke_cooldown = NUKE_COOLDOWN_TIMER
+			game.player_nukes -= 1
+		}
+
+		n.maybe_run = proc(index: int)
+		{
+			n := &game.nukes[index]
+
+			if n.animation.current_frame > 3
+			{
+				n.animation.is_active = false
+			}
+
+			if !n.animation.is_active do return
+
+			frame := &n.animation.frames[n.animation.current_frame]
+
+			detect_laser_collision : for laser in &game.lasers
+			{
+				if laser.health == 0 do continue
+
+				hit := collision(
+					laser.dest.x,
+					laser.dest.y,
+					laser.dest.w,
+					laser.dest.h,
+
+					n.dest.x,
+					n.dest.y,
+					n.dest.w,
+					n.dest.h,
+					)
+
+				if hit
+				{
+					explode_nuke(n)
+					laser.health = 0
+
+					break detect_laser_collision
+				}
+
+			}
+
+			detect_drone_laser_collision : for laser in &game.drone_lasers
+			{
+				if laser.health == 0 do continue
+
+				hit := collision(
+					laser.dest.x,
+					laser.dest.y,
+					laser.dest.w,
+					laser.dest.h,
+
+					n.dest.x,
+					n.dest.y,
+					n.dest.w,
+					n.dest.h,
+					)
+
+				if hit
+				{
+					explode_nuke(n)
+					laser.health = 0
+
+					break detect_drone_laser_collision
+				}
+
+			}
+
+			detect_nuke_collision : for drone in &game.drones
+			{
+				if drone.health == 0 do continue
+
+				hit := collision(
+					n.dest.x,
+					n.dest.y,
+					n.dest.w,
+					n.dest.h,
+
+					drone.dest.x,
+					drone.dest.y,
+					drone.dest.w,
+					drone.dest.h,
+					)
+
+				if hit
+				{
+
+			    	explode_drone(&drone)
+
+					explode_nuke(n)
+
+			    	game.current_score += 1
+
+					break detect_nuke_collision
+				}
+
+			}
+
+			if !n.animation.is_active do return
+
+			frame.action(index)
+
+			frame.timer -= TARGET_DELTA_TIME
+
+			if frame.timer < 0
+			{
+				frame.timer = frame.duration
+				n.animation.current_frame += 1
+			}
+		}
+
+		n.frames[0] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 4,
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 4,
+			action = proc(index: int)
+			{
+				n := &game.nukes[index]
+
+				n.dest.x += i32(get_delta_motion(n.dx))
+
+				SDL.SetTextureAlphaMod(game.nuke_tex, 255)
+				SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &n.dest)
+			},
+		}
+
+		n.frames[1] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 2,
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND) * 2,
+			action = proc(index: int)
+			{
+
+				n := &game.nukes[index]
+
+				// blinking
+				if n.counter > 3
+				{
+					n.counter = 0
+
+					if n.alpha == 255
+					{
+						n.alpha = 100
+					}
+					else
+					{
+						n.alpha = 255
+					}
+
+				}
+
+				n.dest.x += i32(get_delta_motion(n.dx))
+
+				SDL.SetTextureAlphaMod(game.nuke_tex, n.alpha)
+				SDL.SetTextureColorMod(game.nuke_tex, 255, 255, 255)
+				SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &n.dest)
+
+				n.counter += 1
+			},
+		}
+
+		// Stops and shakes
+		n.frames[2] = Frame{
+
+			duration = TARGET_DELTA_TIME * FRAMES_PER_SECOND,
+			timer = TARGET_DELTA_TIME * FRAMES_PER_SECOND,
+			action = proc(index: int)
+			{
+				n := &game.nukes[index]
+				dx : f64
+				dy : f64
+
+
+				if n.counter < 2
+				{
+					dx -= get_delta_motion(n.dx)
+					dy -= get_delta_motion(n.dx)
+
+					n.counter +=1
+				}
+				else if n.counter < 4
+				{
+					dx += get_delta_motion(n.dx)
+					dy += get_delta_motion(n.dx)
+					n.counter +=1
+				}
+				else if n.counter < 6
+				{
+					dx += get_delta_motion(n.dx)
+					dy -= get_delta_motion(n.dx)
+					n.counter +=1
+				}
+				else if n.counter < 8
+				{
+					dx -= get_delta_motion(n.dx)
+					dy += get_delta_motion(n.dx)
+					n.counter +=1
+				}
+				else
+				{
+					n.counter = 0
+				}
+
+				n.dest.x += i32(dx + 0.5)
+				n.dest.y += i32(dy)
+
+				SDL.SetTextureAlphaMod(game.nuke_tex, 255)
+				SDL.RenderCopy(game.renderer, game.nuke_tex, nil, &n.dest)
+			},
+		}
+
+		n.frames[3] = Frame{
+			duration = TARGET_DELTA_TIME,
+			timer = TARGET_DELTA_TIME,
+			action = proc(index: int)
+			{
+				n := &game.nukes[index]
+
+				explode_nuke(n)
+
+			},
 		}
 	}
 
@@ -1447,7 +1606,7 @@ create_entities :: proc()
 		}
 
 		// randomize speed to make things more interesting
-		random_speed := rand.float64_range(350, 500)
+		random_speed := rand.float64_range(DRONE_MIN_SPEED, DRONE_MAX_SPEED)
 
 		game.drones[index] = Entity{
 			dest = destination,
@@ -1584,7 +1743,7 @@ create_entities :: proc()
 		// fill out our Animation:
 		pu := &game.nuke_power_ups[index].animation
 
-		pu.start = proc(index: int, dest: ^SDL.Rect, dx: f64) {
+		pu.start = proc(index: int, dest: ^SDL.Rect, dx: f64, starting_frame: int = 0) {
 			// Odin is not object oriented, we need `index` so we can
 			// identify the correct NukePowerUp object in our array.
 			pu := &game.nuke_power_ups[index]
@@ -1741,8 +1900,11 @@ caprintf :: proc(format: string, args: ..any) -> cstring {
     return cstring(raw_data(s))
 }
 
-explode_nuke :: proc(e: ^NukeEntity)
+explode_nuke :: proc(n: ^NukeEntity)
 {
+
+	n.health = 0
+	n.animation.is_active = false
 
 	// find a free Explosion entity
 	find_nuke_explosion : for _x in &game.nuke_explosions
@@ -1751,9 +1913,9 @@ explode_nuke :: proc(e: ^NukeEntity)
 		{
 			// divide by 2 so we place our explosion
 			// at the center of the destroyed entity
-			_x.dest.x = e.dest.x - (_x.dest.w / 2)
-			_x.dest.y = e.dest.y - (_x.dest.h/ 2)
-			_x.dx = e.dx // explode at the speed at which the destroyed entity was moving
+			_x.dest.x = n.dest.x - (_x.dest.w / 2)
+			_x.dest.y = n.dest.y - (_x.dest.h/ 2)
+			_x.dx = n.dx // explode at the speed at which the destroyed entity was moving
 			_x.is_active = true
 			_x.frame = 0
 			_x.frame_timer = FRAME_TIMER_NUKE_EXPLOSIONS
@@ -1763,25 +1925,27 @@ explode_nuke :: proc(e: ^NukeEntity)
 	}
 
 
-	MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
+	if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
 }
 
 explode_player :: proc(e: ^Entity)
 {
+	e.health = 0
 	explode(e.dest.x, e.dest.y, e.dx)
 
 	// https://wiki.libsdl.org/SDL_mixer/Mix_PlayChannel
 	// -1 => first available channel
 	// Chunk
 	// Loops? -1 => infinite, 0 => play once and stop
-	MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
+	if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.PlayerExplosion], 0)
 }
 
 explode_drone :: proc(e: ^Entity)
 {
+	e.health = 0
 	explode(e.dest.x, e.dest.y, e.dx)
 
-	MIX.PlayChannel(-1, game.sounds[SoundId.DroneExplosion], 0)
+	if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.DroneExplosion], 0)
 }
 
 explode :: proc(x, y: i32, dx: f64)
@@ -1869,7 +2033,7 @@ create_animations :: proc()
 	a.frames = make([dynamic]Frame, 3, 3)
 	a.current_frame = 0
 	a.is_active = false
-	a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0)
+	a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0)
 	{
 		game.begin_stage_animation.current_frame = 0
 		game.begin_stage_animation.is_active = true
@@ -1937,7 +2101,7 @@ create_animations :: proc()
 	game.reset_animation.frames = make([dynamic]Frame, 2, 2)
 	game.reset_animation.current_frame = 0
 	game.reset_animation.is_active = false
-	game.reset_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0)
+	game.reset_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0)
 	{
 		game.reset_animation.current_frame = 0
 		game.reset_animation.is_active = true
@@ -2015,7 +2179,7 @@ create_animations :: proc()
 	game.fade_animation.current_frame = 0
 	game.fade_animation.is_active = false
 
-	game.fade_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0)
+	game.fade_animation.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0)
 	{
 		game.overlay_alpha = 0
 		game.fade_animation.current_frame = 0
