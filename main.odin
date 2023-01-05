@@ -457,17 +457,11 @@ main :: proc()
 			for laser in &game.lasers
 			{
 
-				if laser.health == 0
-				{
-					continue
-				}
+				if laser.health == 0 do continue
 
 				detect_collision : for drone in &game.drones
 				{
-					if drone.health == 0
-					{
-						continue
-					}
+					if drone.health == 0 do continue
 
 					hit := collision(
 						laser.dest.x,
@@ -526,10 +520,7 @@ main :: proc()
 			for laser, idx in &game.drone_lasers
 			{
 
-				if laser.health == 0
-				{
-					continue
-				}
+				if laser.health == 0 do continue
 
 				// check collision based on previous frame's rendered position
 				// check player health to make sure drone lasers don't explode
@@ -608,10 +599,7 @@ main :: proc()
 					respawned = true
 				}
 
-				if drone.health == 0
-				{
-					continue
-				}
+				if drone.health == 0 do continue
 
 				drone.dest.x -= i32(get_delta_motion(drone.dx))
 
