@@ -1,6 +1,6 @@
 # Part 8 :: Enemies Attack!
 
-* [YouTube Video]() - Coming Soon!
+* [YouTube Video](https://youtu.be/BfetmRros2M)
 * [YouTube Channel](https://www.youtube.com/channel/UCKXSHFNc-5D9i3heHkHgeUg)
 * [SDL2 Core Library](https://wiki.libsdl.org/CategoryAPI)
 * [Odin Documentation](https://github.com/odin-lang/Odin/wiki)
