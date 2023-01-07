@@ -933,9 +933,8 @@ main :: proc()
 						if hit
 						{
 							laser.health = 0
-							x := laser.dest.x - (laser.dest.w / 2)
-							y := laser.dest.y - (laser.dest.h / 2)
-							explode(x, y, laser.dx)
+							// this starting position looks a little better when our laser explodes
+							explode((laser.dest.x + laser.dest.w), laser.dest.y, laser.dx)
 						}
 					}
 
