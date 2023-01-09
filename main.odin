@@ -57,7 +57,7 @@ Game :: struct
 	bg_sound_fx: ^MIX.Music,
 	is_restarting: bool,
 	is_render_title: bool,
-	is_render_sub_title: bool,
+	is_render_start_menu: bool,
 	begin_stage_animation: Animation,
 	fade_animation: Animation,
 	reset_animation: Animation,
@@ -82,6 +82,11 @@ Game :: struct
 	right: bool,
 	up: bool,
 	down: bool,
+
+	cursor_left: bool,
+	cursor_right: bool,
+	cursor_up: bool,
+	cursor_down: bool,
 
 
 	laser_tex: ^SDL.Texture,
@@ -127,6 +132,11 @@ Game :: struct
 	// score
 	current_score: int,
 
+	// cursor movement for menu select, etc.
+	start_menu_options: [2]Text,
+	letters: [28]Text,
+	current_cursor_map_index: int,
+	player_name: string,
 }
 
 SoundId :: enum
@@ -135,6 +145,7 @@ SoundId :: enum
 	DroneLaser,
 	PlayerExplosion,
 	DroneExplosion,
+	Select,
 }
 
 Animation :: struct
@@ -157,14 +168,17 @@ Frame :: struct
 TextId :: enum
 {
 	HomeTitle,
-	HomeSubTitle,
 	DeathScreen,
 	Loading,
 	ScoreLabel,
+	Cursor,
+
+	CreatePlayerTitle,
 }
 
 Text :: struct
 {
+	text: cstring,
 	tex: ^SDL.Texture,
 	dest: SDL.Rect,
 }
@@ -173,6 +187,7 @@ Screen :: enum
 {
 	Home,
 	Play,
+	CreatePlayer,
 }
 
 Background :: enum
@@ -243,7 +258,7 @@ game := Game{
 	chars = make(map[rune]Text),
 	screen = Screen.Home,
 	is_render_title = true,
-	is_render_sub_title = true,
+	is_render_start_menu = true,
 	overlay = SDL.Rect{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT},
 	overlay_alpha = 0,
 	is_invincible = false,
@@ -306,6 +321,9 @@ main :: proc()
 	assert(game.sounds[SoundId.DroneExplosion] != nil, SDL.GetErrorString())
 	defer MIX.FreeChunk(game.sounds[SoundId.DroneExplosion])
 
+	game.sounds[SoundId.Select] = MIX.LoadWAV("assets/sounds/select-2.ogg")
+	assert(game.sounds[SoundId.Select] != nil, SDL.GetErrorString())
+	defer MIX.FreeChunk(game.sounds[SoundId.Select])
 
 	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadMUS
 	// returns Music which is decoded on demand
@@ -390,12 +408,163 @@ main :: proc()
 					case .P:
 						game.is_paused = ! game.is_paused
 					case .SPACE:
+						if game.screen == Screen.CreatePlayer
+						{
+							selected_letter := &game.letters[game.current_cursor_map_index]
+
+							if selected_letter.text == "BACK"
+							{
+								if len(game.player_name) > 0
+								{
+									shortened_name := game.player_name[:(len(game.player_name) - 1)]
+									game.player_name = shortened_name
+								}
+							}
+							else if selected_letter.text == "DONE"
+							{
+								if len(game.player_name) > 3
+								{
+									game.begin_stage_animation.start()
+									game.fade_animation.start()
+								}
+							}
+							else if len(game.player_name) < 10
+							{
+								game.player_name = strings.concatenate({game.player_name, string(selected_letter.text)})
+
+								fmt.println(game.player_name)
+								fmt.println(len(game.player_name))
+							}
+						}
+
+					case .RETURN:
 						if game.screen == Screen.Home
 						{
-							game.begin_stage_animation.start()
-							game.fade_animation.start()
-							game.is_render_sub_title = false
+							// New Game
+							if game.current_cursor_map_index == 0
+							{
+								game.screen = Screen.CreatePlayer
+							}
+
+							// Load Game
+							if game.current_cursor_map_index == 1
+							{
+								game.begin_stage_animation.start()
+								game.fade_animation.start()
+								game.is_render_start_menu = false
+							}
 						}
+					case .S, .DOWN:
+						if game.screen == Screen.Home
+						{
+							game.current_cursor_map_index += 1
+							if game.current_cursor_map_index > (len(game.start_menu_options) - 1)
+							{
+								game.current_cursor_map_index = 0
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
+						if game.screen == Screen.CreatePlayer
+						{
+							if game.current_cursor_map_index >= 26
+							{
+								game.current_cursor_map_index = 0
+							}
+							else if game.current_cursor_map_index <= 12
+							{
+								game.current_cursor_map_index += 13
+							}
+							else
+							{
+								game.current_cursor_map_index = 26
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
+
+					case .W, .UP:
+						if game.screen == Screen.Home
+						{
+							game.current_cursor_map_index -= 1
+							if game.current_cursor_map_index < 0
+							{
+								game.current_cursor_map_index = (len(game.start_menu_options) - 1)
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
+						if game.screen == Screen.CreatePlayer
+						{
+							if game.current_cursor_map_index >= 26
+							{
+								game.current_cursor_map_index = 13
+							}
+							else if game.current_cursor_map_index >= 13
+							{
+								game.current_cursor_map_index -= 13
+							}
+							else
+							{
+								game.current_cursor_map_index = 26
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+					case .A, .LEFT:
+						if game.screen == Screen.CreatePlayer
+						{
+							if game.current_cursor_map_index == 0
+							{
+								game.current_cursor_map_index = 12
+							}
+							else if game.current_cursor_map_index == 13
+							{
+								game.current_cursor_map_index = 25
+							}
+							else if game.current_cursor_map_index == 26
+							{
+								game.current_cursor_map_index = 27
+							}
+							else
+							{
+								game.current_cursor_map_index -= 1
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
+					case .D, .RIGHT:
+
+						if game.screen == Screen.CreatePlayer
+						{
+							if game.current_cursor_map_index == 12
+							{
+								game.current_cursor_map_index = 0
+							}
+							else if game.current_cursor_map_index == 25
+							{
+								game.current_cursor_map_index = 13
+							}
+							else if game.current_cursor_map_index == 27
+							{
+								game.current_cursor_map_index = 26
+							}
+							else
+							{
+								game.current_cursor_map_index += 1
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
+
+
+
+
 				}
 
 			}
@@ -433,7 +602,7 @@ main :: proc()
 			section.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 			tex := game.background_textures[section.background]
 
-			if game.screen == Screen.Home
+			if game.screen == Screen.Home || game.screen == Screen.CreatePlayer
 			{
 				tex = game.background_textures[Background.PlainStars]
 			}
@@ -442,7 +611,94 @@ main :: proc()
 
 		}
 
-		if game.screen == Screen.Play
+
+		// render create player select
+		if game.screen == Screen.CreatePlayer
+		{
+
+			title := game.texts[TextId.CreatePlayerTitle]
+
+			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+			bottom_of_text_select : i32 = 0
+			// render letter options
+			{
+				char_spacing : i32 = 30
+
+				letters_per_row : i32 = 12
+				total_spacing := char_spacing * (letters_per_row  - 1)
+				char_width := game.letters[0].dest.w
+				letter_options_width : i32 = (char_width * letters_per_row) + total_spacing
+
+				starting_x : i32 = (WINDOW_WIDTH / 2) - (letter_options_width / 2)
+				starting_y : i32 = title.dest.y + 100
+				prev_chars_w : i32 = 0
+				prev_chars_y : i32 = 0
+
+				bottom_of_text_select = starting_y
+
+				for letter, i in &game.letters
+				{
+					letter.dest.x = starting_x + prev_chars_w
+					letter.dest.y = starting_y + prev_chars_y
+
+					if i == int(letters_per_row) || i == int((letters_per_row * 2) + 1)
+					{
+						prev_chars_y += letter.dest.h + 10
+						prev_chars_w = 0
+
+						bottom_of_text_select += prev_chars_y
+					}
+					else
+					{
+						prev_chars_w += letter.dest.w + char_spacing
+					}
+
+					alpha : u8 = i == game.current_cursor_map_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
+					SDL.SetTextureAlphaMod(letter.tex, alpha)
+					SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
+
+				}
+			}
+
+			cursor := game.texts[TextId.Cursor]
+			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
+			// render game.player_name
+			{
+
+				char_spacing : i32 = 10
+				prev_chars_w : i32 = 0
+
+				player_name_len : i32 = i32(len(game.player_name))
+				char_width : i32 = game.chars[utf8.string_to_runes("A")[0]].dest.w * 2
+
+				name_width := (player_name_len * char_width) + ((char_spacing * player_name_len) -1)
+
+				starting_x : i32 = (WINDOW_WIDTH / 2) - i32(name_width / 2)
+				starting_y : i32 = bottom_of_text_select + 20
+
+				// iterate characters in the string
+				for c in game.player_name
+				{
+					// grab the texture for the single character
+					char : Text = game.chars[c]
+
+					// render this character after the previous one
+					char.dest.x = starting_x + prev_chars_w
+					char.dest.y = starting_y
+					char.dest.w *= 2
+					char.dest.h *= 2
+
+					SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+					prev_chars_w += char.dest.w + char_spacing
+				}
+
+			}
+
+		}
+		else if game.screen == Screen.Play
 		{
 
 			// Based on the positions that are currently visible to the Player...
@@ -1016,33 +1272,63 @@ main :: proc()
 
 			}
 
-			// score label
-			score := game.texts[TextId.ScoreLabel]
-			score.dest.x = 10
-			score.dest.y = 10
-			SDL.RenderCopy(game.renderer, score.tex, nil, &score.dest)
-
-			// current_score
-			score_str : string = (fmt.tprintf("%v", game.current_score))[:]
-			char_spacing : i32 = 2
-			prev_chars_w : i32 = 0
-
-			starting_x : i32 = score.dest.x + score.dest.w + 10
-			starting_y : i32 = score.dest.y
-
-			// iterate characters in the string
-			for c in score_str
+			// Print Name & score
 			{
-				// grab the texture for the single character
-				char : Text = game.chars[c]
+				// player name:
+				prev_chars_w : i32 = 0
+				{
+					char_spacing : i32 = 2
 
-				// render this character after the previous one
-				char.dest.x = starting_x + prev_chars_w
-				char.dest.y = starting_y
+					starting_x : i32 = 10
+					starting_y : i32 = 10
 
-				SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+					for c in game.player_name
+					{
+						// grab the texture for the single character
+						char : Text = game.chars[c]
 
-				prev_chars_w += char.dest.w + char_spacing
+						// render this character after the previous one
+						char.dest.x = starting_x + prev_chars_w
+						char.dest.y = starting_y
+
+						SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+						prev_chars_w += char.dest.w + char_spacing
+					}
+				}
+
+
+				// score label
+				{
+					score := game.texts[TextId.ScoreLabel]
+					score.dest.x = prev_chars_w + 30
+					score.dest.y = 10
+					SDL.RenderCopy(game.renderer, score.tex, nil, &score.dest)
+
+					// current_score
+					score_str : string = (fmt.tprintf("%v", game.current_score))[:]
+					char_spacing : i32 = 2
+					prev_chars_w : i32 = 0
+
+					starting_x : i32 = score.dest.x + score.dest.w + 10
+					starting_y : i32 = score.dest.y
+
+					// iterate characters in the string
+					for c in score_str
+					{
+						// grab the texture for the single character
+						char : Text = game.chars[c]
+
+						// render this character after the previous one
+						char.dest.x = starting_x + prev_chars_w
+						char.dest.y = starting_y
+
+						SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+						prev_chars_w += char.dest.w + char_spacing
+					}
+				}
+
 			}
 
 			nuke_starting_x : i32 = 10
@@ -1086,7 +1372,8 @@ main :: proc()
 		game.fade_animation.maybe_run()
 		game.reset_animation.maybe_run()
 
-		if game.is_render_title
+		// render title screen
+		if game.screen == Screen.Home && game.is_render_title
 		{
 
 			title := game.texts[TextId.HomeTitle]
@@ -1095,13 +1382,31 @@ main :: proc()
 
 			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
 
-			if game.is_render_sub_title
+			if game.is_render_start_menu
 			{
-				sub_title := game.texts[TextId.HomeSubTitle]
-				sub_title.dest.x = (WINDOW_WIDTH / 2) - (sub_title.dest.w / 2)
-				sub_title.dest.y = (WINDOW_HEIGHT / 2) - (sub_title.dest.h / 2) + title.dest.h
 
-				SDL.RenderCopy(game.renderer, sub_title.tex, nil, &sub_title.dest)
+				cursor := game.texts[TextId.Cursor]
+
+				for option, i in &game.start_menu_options
+				{
+
+					if game.current_cursor_map_index == i
+					{
+						SDL.SetTextureAlphaMod(option.tex, 255)
+						cursor.dest.x = option.dest.x - 20
+						cursor.dest.y = option.dest.y
+					}
+					else
+					{
+						SDL.SetTextureAlphaMod(option.tex, 100)
+					}
+
+
+					SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+				}
+
+				SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
 			}
 		}
 
@@ -1967,18 +2272,75 @@ create_statics :: proc()
 {
 	// texts
 	game.texts[TextId.HomeTitle] = make_text("Space Shooter", i32(4))
-	game.texts[TextId.HomeSubTitle] = make_text("press space to start", i32(2))
 
 	game.texts[TextId.DeathScreen] = make_text("Oh no!", i32(2))
 	game.texts[TextId.Loading] = make_text("Loading...", i32(2))
 	game.texts[TextId.ScoreLabel] = make_text("Score : ")
 
-	chars := "0123456789"
+	create_player := make_text("Player Name :", i32(2))
+	create_player.dest.x = (WINDOW_WIDTH / 2) - (create_player.dest.w / 2)
+	create_player.dest.y = (WINDOW_HEIGHT / 2) - 100
+	game.texts[TextId.CreatePlayerTitle] = create_player
+
+	new_game := make_text("New Game")
+	new_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
+	new_game.dest.y = (WINDOW_HEIGHT / 2) + 100
+	game.start_menu_options[0] = new_game
+
+	load_game := make_text("Load Game")
+	load_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2) // new_game to line up with new_game on the left
+	load_game.dest.y = new_game.dest.y + new_game.dest.h + 40
+	game.start_menu_options[1] = load_game
+
+	// create textures for all the letters
+	letters := [28]string{
+		"A",
+		"B",
+		"C",
+		"D",
+		"E",
+		"F",
+		"G",
+		"H",
+		"I",
+		"J",
+		"K",
+		"L",
+		"M",
+		"N",
+		"O",
+		"P",
+		"Q",
+		"R",
+		"S",
+		"T",
+		"U",
+		"V",
+		"W",
+		"X",
+		"Y",
+		"Z",
+		"BACK",
+		"DONE",
+	}
+
+	prev_letter_x : i32 = ((WINDOW_WIDTH / 2) - 380)
+	left_side_x := prev_letter_x
+	prev_letter_y : i32 = (create_player.dest.y + 100)
+
+	for l, i in letters
+	{
+		game.letters[i] = make_text(cstring(raw_data(l)))
+	}
+
+	cursor := make_text(">")
+	game.texts[TextId.Cursor] = cursor
+
+
+	chars := " ?!@#$%^&*();:',.@_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	for c in chars[:]
 	{
 		str := utf8.runes_to_string([]rune{c})
-		defer delete(str)
-
 		game.chars[c] = make_text(cstring(raw_data(str)))
 	}
 
@@ -2250,7 +2612,22 @@ create_animations :: proc()
 		},
 	}
 
+
 }
+
+// make_letter :: proc(text: cstring) -> ^Text
+// {
+
+// 	dest := SDL.Rect{}
+// 	SDL_TTF.SizeText(game.font, text, &dest.w, &dest.h)
+// 	surface := SDL_TTF.RenderText_Solid(game.font, text, COLOR_WHITE)
+// 	defer(SDL.FreeSurface(surface))
+// 	tex := SDL.CreateTextureFromSurface(game.renderer, surface)
+// 	dest.w *= scale
+// 	dest.h *= scale
+
+// 	return &(Text{text, tex, dest})
+// }
 
 make_text :: proc(text: cstring, scale: i32 = 1) -> Text
 {
@@ -2262,5 +2639,5 @@ make_text :: proc(text: cstring, scale: i32 = 1) -> Text
 	dest.w *= scale
 	dest.h *= scale
 
-	return Text{tex, dest}
+	return Text{text, tex, dest}
 }
