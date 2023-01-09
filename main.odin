@@ -1119,6 +1119,13 @@ main :: proc()
 
 		// spin lock to hit our framerate
 		end = get_time()
+
+		if (end - start > TARGET_DELTA_TIME)
+		{
+			fmt.println("Exceeded Target Delta Time")
+			break game_loop
+		}
+
 		for end - start < TARGET_DELTA_TIME
 		{
 			end = get_time()
