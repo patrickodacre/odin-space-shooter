@@ -8,6 +8,9 @@ import MIX "vendor:sdl2/mixer"
 import "core:math/rand"
 import "core:strings"
 import "core:unicode/utf8"
+import "core:os"
+import "core:slice"
+import "core:encoding/json"
 
 COLOR_WHITE : SDL.Color = {255,255,255, 255}
 
@@ -133,10 +136,22 @@ Game :: struct
 	current_score: int,
 
 	// cursor movement for menu select, etc.
-	start_menu_options: [2]Text,
+	char_slot_options: [5]Text,
+	start_menu_options: [3]Text,
 	letters: [28]Text,
 	current_cursor_map_index: int,
 	player_name: string,
+
+	players: [5]Player_Data,
+	selected_player_index: int,
+	highscores: [5]Player_Data,
+	is_highscores_updated: bool,
+}
+
+Player_Data :: struct
+{
+	name: string,
+	score: int,
 }
 
 SoundId :: enum
@@ -172,8 +187,13 @@ TextId :: enum
 	Loading,
 	ScoreLabel,
 	Cursor,
+	Empty,
 
+	LoadGameTitle,
 	CreatePlayerTitle,
+	CreatePlayerSelectSlot,
+
+	HighscoresTitle,
 }
 
 Text :: struct
@@ -188,6 +208,9 @@ Screen :: enum
 	Home,
 	Play,
 	CreatePlayer,
+	NewGame,
+	LoadGame,
+	Highscores,
 }
 
 Background :: enum
@@ -354,6 +377,18 @@ main :: proc()
 	create_animations()
 	reset_timers()
 
+	if ok := load_players(); !ok
+	{
+		fmt.println("error loading players")
+		return
+	}
+
+	if ok := load_highscores(); !ok
+	{
+		fmt.println("no no")
+		return
+	}
+
 	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
 	start : f64
 	end : f64
@@ -399,7 +434,44 @@ main :: proc()
 				#partial switch event.key.keysym.scancode
 				{
 					case .ESCAPE:
-						break game_loop
+						if game.screen == Screen.NewGame
+						{
+							game.screen = Screen.Home
+						}
+						else if game.screen == Screen.Highscores
+						{
+							game.screen = Screen.Home
+						}
+						else if game.screen == Screen.LoadGame
+						{
+							game.screen = Screen.Home
+						}
+						else if game.screen == Screen.CreatePlayer
+						{
+							game.screen = Screen.Home
+						}
+
+						game.current_cursor_map_index = 0
+
+					case .Q: {
+						// can't quit when dead
+						if game.screen == Screen.Play || game.player.health > 0
+						{
+							game.fade_animation.start()
+
+							reset_entities()
+
+							game.is_invincible = true
+							game.player.health = 0
+							game.is_restarting = false
+							game.is_highscores_updated = false
+
+							game.is_render_title = true
+							game.is_render_start_menu = true
+							game.current_cursor_map_index = 0
+							game.screen = Screen.Home
+						}
+					}
 					case .L:
 						fmt.println("log")
 					case .I:
@@ -422,39 +494,125 @@ main :: proc()
 							}
 							else if selected_letter.text == "DONE"
 							{
+
 								if len(game.player_name) > 3
 								{
 									game.begin_stage_animation.start()
 									game.fade_animation.start()
+
+									// create file::
+									flags := os.O_RDWR
+									file_handler, err_file := os.open("player_data.json", flags, 0)
+									defer os.close(file_handler)
+
+									if err_file != 0
+									{
+										fmt.println("player_data.json does not exist.")
+										break game_loop
+									}
+
+									for player in &game.players
+									{
+										if game.player_name == player.name
+										{
+											// TODO: show some overwrite prompt
+											fmt.println("Player already exists!")
+											break game_loop
+										}
+									}
+
+
+								    new_player := Player_Data{ game.player_name, 0 }
+								    game.players[game.selected_player_index] = new_player
+
+								    json_bytes, err_json := json.marshal(game.players)
+
+								    if err_json != nil
+								    {
+										msg := fmt.tprintf("Expected `json.marshal` to return nil, got %v", err_json)
+								    	break game_loop
+								    }
+
+									os.write_string(file_handler, string(json_bytes))
+									fmt.println("New Player Created")
+
 								}
+
 							}
 							else if len(game.player_name) < 10
 							{
 								game.player_name = strings.concatenate({game.player_name, string(selected_letter.text)})
-
-								fmt.println(game.player_name)
-								fmt.println(len(game.player_name))
 							}
 						}
 
-					case .RETURN:
-						if game.screen == Screen.Home
+					case .RETURN: {
+
+						if game.screen == Screen.NewGame
+						{
+							game.selected_player_index = game.current_cursor_map_index
+
+							if game.players[game.selected_player_index].name != ""
+							{
+								fmt.println("OVERWRITING")
+							}
+
+							game.screen = Screen.CreatePlayer
+							game.current_cursor_map_index = 0
+						}
+    					else if game.screen == Screen.Highscores
+						{
+							game.screen = Screen.Home
+							break
+						}
+						else if game.screen == Screen.Home
 						{
 							// New Game
 							if game.current_cursor_map_index == 0
 							{
-								game.screen = Screen.CreatePlayer
+								game.screen = Screen.NewGame
+								game.current_cursor_map_index = 0
 							}
 
 							// Load Game
 							if game.current_cursor_map_index == 1
 							{
-								game.begin_stage_animation.start()
-								game.fade_animation.start()
-								game.is_render_start_menu = false
+								game.screen = Screen.LoadGame
+								game.current_cursor_map_index = 0
+								break
+							}
+
+							// highscores
+							if game.current_cursor_map_index == 2
+							{
+								game.screen = Screen.Highscores
+								break
 							}
 						}
-					case .S, .DOWN:
+						else if game.screen == Screen.LoadGame
+						{
+
+							game.player_name = game.players[game.current_cursor_map_index].name
+							game.current_score = 0
+
+							game.begin_stage_animation.start()
+							game.fade_animation.start()
+							game.is_render_start_menu = false
+
+						}
+
+					}
+					case .S, .DOWN: {
+						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
+						{
+							game.current_cursor_map_index += 1
+							if game.current_cursor_map_index > (len(game.char_slot_options) - 1)
+							{
+								game.current_cursor_map_index = 0
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
 						if game.screen == Screen.Home
 						{
 							game.current_cursor_map_index += 1
@@ -484,8 +642,20 @@ main :: proc()
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
 						}
 
-
+					}
 					case .W, .UP:
+
+						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
+						{
+							game.current_cursor_map_index -= 1
+							if game.current_cursor_map_index < 0
+							{
+								game.current_cursor_map_index = (len(game.char_slot_options) - 1)
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
 						if game.screen == Screen.Home
 						{
 							game.current_cursor_map_index -= 1
@@ -602,7 +772,7 @@ main :: proc()
 			section.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
 			tex := game.background_textures[section.background]
 
-			if game.screen == Screen.Home || game.screen == Screen.CreatePlayer
+			if game.screen != Screen.Play
 			{
 				tex = game.background_textures[Background.PlainStars]
 			}
@@ -610,9 +780,9 @@ main :: proc()
 			SDL.RenderCopy(game.renderer, tex, nil, &section.dest)
 
 		}
+		// end backgrounds
 
-
-		// render create player select
+		// create player
 		if game.screen == Screen.CreatePlayer
 		{
 
@@ -656,6 +826,7 @@ main :: proc()
 
 					alpha : u8 = i == game.current_cursor_map_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
 					SDL.SetTextureAlphaMod(letter.tex, alpha)
+					defer SDL.SetTextureAlphaMod(letter.tex, 255)
 					SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
 
 				}
@@ -698,7 +869,9 @@ main :: proc()
 			}
 
 		}
-		else if game.screen == Screen.Play
+
+		// render screen play
+		if game.screen == Screen.Play
 		{
 
 			// Based on the positions that are currently visible to the Player...
@@ -1047,6 +1220,48 @@ main :: proc()
 			// Player Dead
 			if game.player.health == 0 && !game.is_restarting
 			{
+				// save score
+				for player in &game.players
+				{
+					if game.player_name == player.name && game.current_score > player.score
+					{
+						player.score = game.current_score
+					}
+				}
+
+				if ok := save_player_data(); !ok
+				{
+					fmt.println("Error saving data")
+				}
+
+				if !game.is_highscores_updated
+				{
+					temp_scores := [6]Player_Data{}
+					temp_scores[0] = game.highscores[0]
+					temp_scores[1] = game.highscores[1]
+					temp_scores[2] = game.highscores[2]
+					temp_scores[3] = game.highscores[3]
+					temp_scores[4] = game.highscores[4]
+					temp_scores[5] = Player_Data{game.player_name, game.current_score}
+
+					slice.sort_by(temp_scores[:], proc(a, b: Player_Data) -> bool {
+						return a.score > b.score
+					})
+
+					game.highscores[0] = temp_scores[0]
+					game.highscores[1] = temp_scores[1]
+					game.highscores[2] = temp_scores[2]
+					game.highscores[3] = temp_scores[3]
+					game.highscores[4] = temp_scores[4]
+
+					if ok := save_highscore_data(); !ok
+					{
+						fmt.println("error saving highscores")
+					}
+
+					game.is_highscores_updated = true
+				}
+
 
 				msg := game.texts[TextId.DeathScreen]
 				msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
@@ -1352,27 +1567,219 @@ main :: proc()
 
 			}
 
+
+	    	for index in 0..<NUM_NUKE_PU
+	    	{
+		    	nuke_pu := &game.nuke_power_ups[index]
+		    	nuke_pu.animation.maybe_run(index)
+	    	}
+
+	    	for nuke, i in &game.nukes
+	    	{
+		    	nuke.animation.maybe_run(i)
+	    	}
+
 		// end game.screen == Screen.Play
 		}
 
-
-
-    	for index in 0..<NUM_NUKE_PU
-    	{
-	    	nuke_pu := &game.nuke_power_ups[index]
-	    	nuke_pu.animation.maybe_run(index)
-    	}
-
-    	for nuke, i in &game.nukes
-    	{
-	    	nuke.animation.maybe_run(i)
-    	}
 
 		game.begin_stage_animation.maybe_run()
 		game.fade_animation.maybe_run()
 		game.reset_animation.maybe_run()
 
-		// render title screen
+		// render highscores
+		if game.screen == Screen.Highscores
+		{
+			title := game.texts[TextId.HighscoresTitle]
+			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+			for highscore, i in game.highscores
+			{
+				slot := &game.char_slot_options[i]
+
+				// alpha : u8 = 255
+				// SDL.SetTextureAlphaMod(slot.tex, alpha)
+				SDL.RenderCopy(game.renderer, slot.tex, nil, &slot.dest)
+
+				if highscore.name == "" do continue
+
+				// render name
+				char_spacing : i32 = 2
+				starting_x : i32 = slot.dest.x + slot.dest.w + 30
+				starting_y : i32 = slot.dest.y
+				prev_chars_w : i32 = 0
+
+				for c in highscore.name
+				{
+					l := game.chars[c]
+
+					l.dest.x = starting_x + prev_chars_w
+					l.dest.y = starting_y
+
+					// SDL.SetTextureAlphaMod(l.tex, alpha)
+					SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+
+					prev_chars_w += l.dest.w + char_spacing
+
+				}
+
+				score_str : string = (fmt.tprintf("%v", highscore.score))[:]
+				starting_x = (WINDOW_WIDTH / 2) + ((WINDOW_WIDTH / 2) - slot.dest.x) - i32(len(score_str))
+				prev_chars_w = 0
+
+				// render score
+				for c in score_str
+				{
+					l := game.chars[c]
+
+					l.dest.x = starting_x + prev_chars_w
+					l.dest.y = starting_y
+
+					// SDL.SetTextureAlphaMod(l.tex, alpha)
+					SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+
+					prev_chars_w += l.dest.w + char_spacing
+
+				}
+
+
+			}
+		}
+
+		// render load game
+		if game.screen == Screen.LoadGame
+		{
+
+			title := game.texts[TextId.LoadGameTitle]
+
+			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+			cursor := game.texts[TextId.Cursor]
+
+			// New Game and Load Game Options
+			for option, i in &game.char_slot_options
+			{
+				alpha : u8
+
+				if game.current_cursor_map_index == i
+				{
+					alpha = 255
+					cursor.dest.x = option.dest.x - 20
+					cursor.dest.y = option.dest.y
+				}
+				else
+				{
+					alpha = 100
+				}
+
+				SDL.SetTextureAlphaMod(option.tex, alpha)
+				defer SDL.SetTextureAlphaMod(option.tex, 255)
+				SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+				// undo any alpha set to 100
+
+				if game.players[i].name != ""
+				{
+
+					char_spacing : i32 = 2
+					starting_x : i32 = option.dest.x + option.dest.w + 30
+					starting_y : i32 = option.dest.y
+					prev_chars_w : i32 = 0
+
+					for c in game.players[i].name[:]
+					{
+						l := game.chars[c]
+
+						l.dest.x = starting_x + prev_chars_w
+						l.dest.y = starting_y
+
+						SDL.SetTextureAlphaMod(l.tex, alpha)
+						defer SDL.SetTextureAlphaMod(l.tex, 255)
+						SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+						// undo any alpha set to 100
+
+						prev_chars_w += l.dest.w + char_spacing
+					}
+
+				}
+
+			}
+
+			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
+
+		}
+
+		if game.screen == Screen.NewGame
+		{
+			title := game.texts[TextId.CreatePlayerSelectSlot]
+
+			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+			cursor := game.texts[TextId.Cursor]
+
+			// New Game and Load Game Options
+			for option, i in &game.char_slot_options
+			{
+				alpha : u8
+
+				if game.current_cursor_map_index == i
+				{
+					alpha = 255
+					cursor.dest.x = option.dest.x - 20
+					cursor.dest.y = option.dest.y
+				}
+				else
+				{
+					alpha = 100
+				}
+
+				SDL.SetTextureAlphaMod(option.tex, alpha)
+				defer SDL.SetTextureAlphaMod(option.tex, 255)
+				SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+				// undo any alpha set to 100
+
+
+				if game.players[i].name != ""
+				{
+
+					char_spacing : i32 = 2
+					starting_x : i32 = option.dest.x + option.dest.w + 30
+					starting_y : i32 = option.dest.y
+					prev_chars_w : i32 = 0
+
+					for c in game.players[i].name[:]
+					{
+						l := game.chars[c]
+
+						l.dest.x = starting_x + prev_chars_w
+						l.dest.y = starting_y
+
+						SDL.SetTextureAlphaMod(l.tex, alpha)
+						defer SDL.SetTextureAlphaMod(l.tex, 255)
+						SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+
+						prev_chars_w += l.dest.w + char_spacing
+					}
+
+				}
+				else
+				{
+					empty := game.texts[TextId.Empty]
+					empty.dest.x = option.dest.x + option.dest.w + 30
+					empty.dest.y = option.dest.y
+
+					SDL.SetTextureAlphaMod(empty.tex, alpha)
+					defer SDL.SetTextureAlphaMod(empty.tex, 255)
+					SDL.RenderCopy(game.renderer, empty.tex, nil, &empty.dest)
+				}
+
+			}
+
+			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
+
+		}
+
 		if game.screen == Screen.Home && game.is_render_title
 		{
 
@@ -1387,6 +1794,7 @@ main :: proc()
 
 				cursor := game.texts[TextId.Cursor]
 
+				// New Game and Load Game Options
 				for option, i in &game.start_menu_options
 				{
 
@@ -1403,6 +1811,7 @@ main :: proc()
 
 
 					SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+					SDL.SetTextureAlphaMod(option.tex, 255)
 				}
 
 				SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
@@ -1425,10 +1834,10 @@ main :: proc()
 		// spin lock to hit our framerate
 		end = get_time()
 
-		if (end - start > TARGET_DELTA_TIME)
+		if ((end - start) > TARGET_DELTA_TIME)
 		{
+			// happens on resize
 			fmt.println("Exceeded Target Delta Time")
-			break game_loop
 		}
 
 		for end - start < TARGET_DELTA_TIME
@@ -2282,6 +2691,46 @@ create_statics :: proc()
 	create_player.dest.y = (WINDOW_HEIGHT / 2) - 100
 	game.texts[TextId.CreatePlayerTitle] = create_player
 
+	load_game_title := make_text("Load Game", i32(2))
+	load_game_title.dest.x = (WINDOW_WIDTH / 2) - (load_game_title.dest.w / 2)
+	load_game_title.dest.y = (WINDOW_HEIGHT / 6)
+	game.texts[TextId.LoadGameTitle] = load_game_title
+
+	highscores_title := make_text("Highscores", i32(2))
+	highscores_title.dest.x = (WINDOW_WIDTH / 2) - (highscores_title.dest.w / 2)
+	highscores_title.dest.y = (WINDOW_HEIGHT / 6)
+	game.texts[TextId.HighscoresTitle] = highscores_title
+
+	select_slot := make_text("Select a Character Slot :", i32(2))
+	select_slot.dest.x = (WINDOW_WIDTH / 2) - (select_slot.dest.w / 2)
+	select_slot.dest.y = (WINDOW_HEIGHT / 6)
+	game.texts[TextId.CreatePlayerSelectSlot] = select_slot
+
+	slot_1 := make_text("1.")
+	slot_1.dest.x = select_slot.dest.x
+	slot_1.dest.y = select_slot.dest.y + select_slot.dest.h + 100
+	game.char_slot_options[0] = slot_1
+
+	slot_2 := make_text("2.")
+	slot_2.dest.x = slot_1.dest.x
+	slot_2.dest.y = slot_1.dest.y + slot_1.dest.h + 50
+	game.char_slot_options[1] = slot_2
+
+	slot_3 := make_text("3.")
+	slot_3.dest.x = slot_2.dest.x
+	slot_3.dest.y = slot_2.dest.y + slot_2.dest.h + 50
+	game.char_slot_options[2] = slot_3
+
+	slot_4 := make_text("4.")
+	slot_4.dest.x = slot_3.dest.x
+	slot_4.dest.y = slot_3.dest.y + slot_3.dest.h + 50
+	game.char_slot_options[3] = slot_4
+
+	slot_5 := make_text("5.")
+	slot_5.dest.x = slot_4.dest.x
+	slot_5.dest.y = slot_4.dest.y + slot_4.dest.h + 50
+	game.char_slot_options[4] = slot_5
+
 	new_game := make_text("New Game")
 	new_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
 	new_game.dest.y = (WINDOW_HEIGHT / 2) + 100
@@ -2291,6 +2740,11 @@ create_statics :: proc()
 	load_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2) // new_game to line up with new_game on the left
 	load_game.dest.y = new_game.dest.y + new_game.dest.h + 40
 	game.start_menu_options[1] = load_game
+
+	highscores := make_text("Highscores")
+	highscores.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
+	highscores.dest.y = load_game.dest.y + load_game.dest.h + 40
+	game.start_menu_options[2] = highscores
 
 	// create textures for all the letters
 	letters := [28]string{
@@ -2335,6 +2789,9 @@ create_statics :: proc()
 
 	cursor := make_text(">")
 	game.texts[TextId.Cursor] = cursor
+
+	empty := make_text("Empty")
+	game.texts[TextId.Empty] = empty
 
 
 	chars := " ?!@#$%^&*();:',.@_0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -2521,9 +2978,11 @@ create_animations :: proc()
 			game.is_invincible = true
 			game.player.health = 1
 			game.is_restarting = false
+			game.is_highscores_updated = false
 
 			reset_entities()
 			reset_timers()
+
 		},
 	}
 	// end reset_animation
@@ -2604,7 +3063,7 @@ create_animations :: proc()
 			// check underflow
 			if new_alpha > game.overlay_alpha
 			{
-				game.is_render_title = false
+				// game.is_render_title = false
 				new_alpha = 0
 			}
 
@@ -2640,4 +3099,107 @@ make_text :: proc(text: cstring, scale: i32 = 1) -> Text
 	dest.h *= scale
 
 	return Text{text, tex, dest}
+}
+
+load_highscores :: proc() -> bool
+{
+	using os
+	flags := O_RDWR | O_CREATE
+
+	file_handler, err_file := os.open("highscores.json", flags, 0)
+	defer os.close(file_handler)
+
+	if err_file != 0
+	{
+		fmt.println("Error creating highscores file")
+
+		return false
+	}
+
+	// read full file
+	bytes_read, err_read_file := os.read_entire_file_from_handle(file_handler)
+
+	json.unmarshal(bytes_read, &game.highscores)
+
+	return true
+}
+
+load_players :: proc() -> bool
+{
+	using os
+	flags := O_RDWR | O_CREATE
+
+	file_handler, err_file := os.open("player_data.json", flags, 0)
+	defer os.close(file_handler)
+
+	if err_file != 0
+	{
+		fmt.println("Error creating file")
+
+		return false
+	}
+
+	// read full file
+	bytes_read, err_read_file := os.read_entire_file_from_handle(file_handler)
+
+	json.unmarshal(bytes_read, &game.players)
+
+	for player in &game.players
+	{
+		// player.tex =
+	}
+
+	return true
+}
+
+save_highscore_data :: proc() -> bool
+{
+	flags := os.O_RDWR
+	file_handler, err_file := os.open("highscores.json", flags, 0)
+	defer os.close(file_handler)
+
+	if err_file != 0
+	{
+		fmt.println("highscores.json does not exist.")
+		return false
+	}
+
+    json_bytes, err_json := json.marshal(game.highscores)
+
+    if err_json != nil
+    {
+		msg := fmt.tprintf("Error saving highscores. Expected `json.marshal` to return nil, got %v", err_json)
+
+		return false
+    }
+
+	os.write_string(file_handler, string(json_bytes))
+
+	return true
+}
+
+save_player_data :: proc() -> bool
+{
+	flags := os.O_RDWR
+	file_handler, err_file := os.open("player_data.json", flags, 0)
+	defer os.close(file_handler)
+
+	if err_file != 0
+	{
+		fmt.println("player_data.json does not exist.")
+		return false
+	}
+
+    json_bytes, err_json := json.marshal(game.players)
+
+    if err_json != nil
+    {
+		msg := fmt.tprintf("Expected `json.marshal` to return nil, got %v", err_json)
+
+		return false
+    }
+
+	os.write_string(file_handler, string(json_bytes))
+
+	return true
 }
