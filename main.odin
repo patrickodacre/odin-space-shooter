@@ -137,7 +137,7 @@ Game :: struct
 
 	// cursor movement for menu select, etc.
 	letters: [28]Text,
-	current_cursor_map_index: int,
+	cursor_current_index: int,
 	player_name: string,
 
 	players: [5]Player_Data,
@@ -452,7 +452,7 @@ main :: proc()
 							game.screen = Screen.Home
 						}
 
-						game.current_cursor_map_index = 0
+						game.cursor_current_index = 0
 
 					case .Q: {
 						// can't quit when dead
@@ -483,7 +483,7 @@ main :: proc()
 					case .SPACE:
 						if game.screen == Screen.CreatePlayer
 						{
-							selected_letter := &game.letters[game.current_cursor_map_index]
+							selected_letter := &game.letters[game.cursor_current_index]
 
 							if selected_letter.text == "BACK"
 							{
@@ -550,7 +550,7 @@ main :: proc()
 
 						if game.screen == Screen.NewGame
 						{
-							game.selected_player_index = game.current_cursor_map_index
+							game.selected_player_index = game.cursor_current_index
 
 							if game.players[game.selected_player_index].name != ""
 							{
@@ -558,7 +558,7 @@ main :: proc()
 							}
 
 							game.screen = Screen.CreatePlayer
-							game.current_cursor_map_index = 0
+							game.cursor_current_index = 0
 						}
     					else if game.screen == Screen.Highscores
 						{
@@ -568,22 +568,22 @@ main :: proc()
 						else if game.screen == Screen.Home
 						{
 							// New Game
-							if game.current_cursor_map_index == 0
+							if game.cursor_current_index == 0
 							{
 								game.screen = Screen.NewGame
-								game.current_cursor_map_index = 0
+								game.cursor_current_index = 0
 							}
 
 							// Load Game
-							if game.current_cursor_map_index == 1
+							if game.cursor_current_index == 1
 							{
 								game.screen = Screen.LoadGame
-								game.current_cursor_map_index = 0
+								game.cursor_current_index = 0
 								break
 							}
 
 							// highscores
-							if game.current_cursor_map_index == 2
+							if game.cursor_current_index == 2
 							{
 								game.screen = Screen.Highscores
 								break
@@ -592,7 +592,7 @@ main :: proc()
 						else if game.screen == Screen.LoadGame
 						{
 
-							game.player_name = game.players[game.current_cursor_map_index].name
+							game.player_name = game.players[game.cursor_current_index].name
 							game.current_score = 0
 
 							game.begin_stage_animation.start()
@@ -605,10 +605,10 @@ main :: proc()
 					case .S, .DOWN: {
 						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
 						{
-							game.current_cursor_map_index += 1
-							if game.current_cursor_map_index > (len(game.options_players) - 1)
+							game.cursor_current_index += 1
+							if game.cursor_current_index > (len(game.options_players) - 1)
 							{
-								game.current_cursor_map_index = 0
+								game.cursor_current_index = 0
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -616,10 +616,10 @@ main :: proc()
 
 						if game.screen == Screen.Home
 						{
-							game.current_cursor_map_index += 1
-							if game.current_cursor_map_index > (len(game.options_start_menu) - 1)
+							game.cursor_current_index += 1
+							if game.cursor_current_index > (len(game.options_start_menu) - 1)
 							{
-								game.current_cursor_map_index = 0
+								game.cursor_current_index = 0
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -627,17 +627,17 @@ main :: proc()
 
 						if game.screen == Screen.CreatePlayer
 						{
-							if game.current_cursor_map_index >= 26
+							if game.cursor_current_index >= 26
 							{
-								game.current_cursor_map_index = 0
+								game.cursor_current_index = 0
 							}
-							else if game.current_cursor_map_index <= 12
+							else if game.cursor_current_index <= 12
 							{
-								game.current_cursor_map_index += 13
+								game.cursor_current_index += 13
 							}
 							else
 							{
-								game.current_cursor_map_index = 26
+								game.cursor_current_index = 26
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -648,10 +648,10 @@ main :: proc()
 
 						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
 						{
-							game.current_cursor_map_index -= 1
-							if game.current_cursor_map_index < 0
+							game.cursor_current_index -= 1
+							if game.cursor_current_index < 0
 							{
-								game.current_cursor_map_index = (len(game.options_players) - 1)
+								game.cursor_current_index = (len(game.options_players) - 1)
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -659,10 +659,10 @@ main :: proc()
 
 						if game.screen == Screen.Home
 						{
-							game.current_cursor_map_index -= 1
-							if game.current_cursor_map_index < 0
+							game.cursor_current_index -= 1
+							if game.cursor_current_index < 0
 							{
-								game.current_cursor_map_index = (len(game.options_start_menu) - 1)
+								game.cursor_current_index = (len(game.options_start_menu) - 1)
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -670,17 +670,17 @@ main :: proc()
 
 						if game.screen == Screen.CreatePlayer
 						{
-							if game.current_cursor_map_index >= 26
+							if game.cursor_current_index >= 26
 							{
-								game.current_cursor_map_index = 13
+								game.cursor_current_index = 13
 							}
-							else if game.current_cursor_map_index >= 13
+							else if game.cursor_current_index >= 13
 							{
-								game.current_cursor_map_index -= 13
+								game.cursor_current_index -= 13
 							}
 							else
 							{
-								game.current_cursor_map_index = 26
+								game.cursor_current_index = 26
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -688,21 +688,21 @@ main :: proc()
 					case .A, .LEFT:
 						if game.screen == Screen.CreatePlayer
 						{
-							if game.current_cursor_map_index == 0
+							if game.cursor_current_index == 0
 							{
-								game.current_cursor_map_index = 12
+								game.cursor_current_index = 12
 							}
-							else if game.current_cursor_map_index == 13
+							else if game.cursor_current_index == 13
 							{
-								game.current_cursor_map_index = 25
+								game.cursor_current_index = 25
 							}
-							else if game.current_cursor_map_index == 26
+							else if game.cursor_current_index == 26
 							{
-								game.current_cursor_map_index = 27
+								game.cursor_current_index = 27
 							}
 							else
 							{
-								game.current_cursor_map_index -= 1
+								game.cursor_current_index -= 1
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -712,21 +712,21 @@ main :: proc()
 
 						if game.screen == Screen.CreatePlayer
 						{
-							if game.current_cursor_map_index == 12
+							if game.cursor_current_index == 12
 							{
-								game.current_cursor_map_index = 0
+								game.cursor_current_index = 0
 							}
-							else if game.current_cursor_map_index == 25
+							else if game.cursor_current_index == 25
 							{
-								game.current_cursor_map_index = 13
+								game.cursor_current_index = 13
 							}
-							else if game.current_cursor_map_index == 27
+							else if game.cursor_current_index == 27
 							{
-								game.current_cursor_map_index = 26
+								game.cursor_current_index = 26
 							}
 							else
 							{
-								game.current_cursor_map_index += 1
+								game.cursor_current_index += 1
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -825,7 +825,7 @@ main :: proc()
 						prev_chars_w += letter.dest.w + char_spacing
 					}
 
-					alpha : u8 = i == game.current_cursor_map_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
+					alpha : u8 = i == game.cursor_current_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
 					SDL.SetTextureAlphaMod(letter.tex, alpha)
 					defer SDL.SetTextureAlphaMod(letter.tex, 255)
 					SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
@@ -1662,7 +1662,7 @@ main :: proc()
 			{
 				alpha : u8
 
-				if game.current_cursor_map_index == i
+				if game.cursor_current_index == i
 				{
 					alpha = 255
 					cursor.dest.x = option.dest.x - 20
@@ -1723,7 +1723,7 @@ main :: proc()
 			{
 				alpha : u8
 
-				if game.current_cursor_map_index == i
+				if game.cursor_current_index == i
 				{
 					alpha = 255
 					cursor.dest.x = option.dest.x - 20
@@ -1799,7 +1799,7 @@ main :: proc()
 				for option, i in &game.options_start_menu
 				{
 
-					if game.current_cursor_map_index == i
+					if game.cursor_current_index == i
 					{
 						SDL.SetTextureAlphaMod(option.tex, 255)
 						cursor.dest.x = option.dest.x - 20
