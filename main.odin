@@ -136,8 +136,6 @@ Game :: struct
 	current_score: int,
 
 	// cursor movement for menu select, etc.
-	char_slot_options: [5]Text,
-	start_menu_options: [3]Text,
 	letters: [28]Text,
 	current_cursor_map_index: int,
 	player_name: string,
@@ -146,6 +144,9 @@ Game :: struct
 	selected_player_index: int,
 	highscores: [5]Player_Data,
 	is_highscores_updated: bool,
+
+	options_start_menu: [3]Text,
+	options_players: [5]Text,
 }
 
 Player_Data :: struct
@@ -605,7 +606,7 @@ main :: proc()
 						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
 						{
 							game.current_cursor_map_index += 1
-							if game.current_cursor_map_index > (len(game.char_slot_options) - 1)
+							if game.current_cursor_map_index > (len(game.options_players) - 1)
 							{
 								game.current_cursor_map_index = 0
 							}
@@ -616,7 +617,7 @@ main :: proc()
 						if game.screen == Screen.Home
 						{
 							game.current_cursor_map_index += 1
-							if game.current_cursor_map_index > (len(game.start_menu_options) - 1)
+							if game.current_cursor_map_index > (len(game.options_start_menu) - 1)
 							{
 								game.current_cursor_map_index = 0
 							}
@@ -650,7 +651,7 @@ main :: proc()
 							game.current_cursor_map_index -= 1
 							if game.current_cursor_map_index < 0
 							{
-								game.current_cursor_map_index = (len(game.char_slot_options) - 1)
+								game.current_cursor_map_index = (len(game.options_players) - 1)
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -661,7 +662,7 @@ main :: proc()
 							game.current_cursor_map_index -= 1
 							if game.current_cursor_map_index < 0
 							{
-								game.current_cursor_map_index = (len(game.start_menu_options) - 1)
+								game.current_cursor_map_index = (len(game.options_start_menu) - 1)
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -1595,7 +1596,7 @@ main :: proc()
 
 			for highscore, i in game.highscores
 			{
-				slot := &game.char_slot_options[i]
+				slot := &game.options_players[i]
 
 				// alpha : u8 = 255
 				// SDL.SetTextureAlphaMod(slot.tex, alpha)
@@ -1657,7 +1658,7 @@ main :: proc()
 			cursor := game.texts[TextId.Cursor]
 
 			// New Game and Load Game Options
-			for option, i in &game.char_slot_options
+			for option, i in &game.options_players
 			{
 				alpha : u8
 
@@ -1718,7 +1719,7 @@ main :: proc()
 			cursor := game.texts[TextId.Cursor]
 
 			// New Game and Load Game Options
-			for option, i in &game.char_slot_options
+			for option, i in &game.options_players
 			{
 				alpha : u8
 
@@ -1795,7 +1796,7 @@ main :: proc()
 				cursor := game.texts[TextId.Cursor]
 
 				// New Game and Load Game Options
-				for option, i in &game.start_menu_options
+				for option, i in &game.options_start_menu
 				{
 
 					if game.current_cursor_map_index == i
@@ -2709,42 +2710,42 @@ create_statics :: proc()
 	slot_1 := make_text("1.")
 	slot_1.dest.x = select_slot.dest.x
 	slot_1.dest.y = select_slot.dest.y + select_slot.dest.h + 100
-	game.char_slot_options[0] = slot_1
+	game.options_players[0] = slot_1
 
 	slot_2 := make_text("2.")
 	slot_2.dest.x = slot_1.dest.x
 	slot_2.dest.y = slot_1.dest.y + slot_1.dest.h + 50
-	game.char_slot_options[1] = slot_2
+	game.options_players[1] = slot_2
 
 	slot_3 := make_text("3.")
 	slot_3.dest.x = slot_2.dest.x
 	slot_3.dest.y = slot_2.dest.y + slot_2.dest.h + 50
-	game.char_slot_options[2] = slot_3
+	game.options_players[2] = slot_3
 
 	slot_4 := make_text("4.")
 	slot_4.dest.x = slot_3.dest.x
 	slot_4.dest.y = slot_3.dest.y + slot_3.dest.h + 50
-	game.char_slot_options[3] = slot_4
+	game.options_players[3] = slot_4
 
 	slot_5 := make_text("5.")
 	slot_5.dest.x = slot_4.dest.x
 	slot_5.dest.y = slot_4.dest.y + slot_4.dest.h + 50
-	game.char_slot_options[4] = slot_5
+	game.options_players[4] = slot_5
 
 	new_game := make_text("New Game")
 	new_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
 	new_game.dest.y = (WINDOW_HEIGHT / 2) + 100
-	game.start_menu_options[0] = new_game
+	game.options_start_menu[0] = new_game
 
 	load_game := make_text("Load Game")
 	load_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2) // new_game to line up with new_game on the left
 	load_game.dest.y = new_game.dest.y + new_game.dest.h + 40
-	game.start_menu_options[1] = load_game
+	game.options_start_menu[1] = load_game
 
 	highscores := make_text("Highscores")
 	highscores.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
 	highscores.dest.y = load_game.dest.y + load_game.dest.h + 40
-	game.start_menu_options[2] = highscores
+	game.options_start_menu[2] = highscores
 
 	// create textures for all the letters
 	letters := [28]string{
