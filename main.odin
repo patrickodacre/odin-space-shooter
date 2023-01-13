@@ -1108,7 +1108,7 @@ main :: proc()
 						{
 
 							// find the first one available
-							if laser.health == 0
+							if laser.health == 0 && !game.is_paused
 							{
 
 								// fire from the drone's position
@@ -1123,11 +1123,8 @@ main :: proc()
 									game.player.dest.y,
 									)
 
-								if !game.is_paused
-								{
-									laser.dx = new_dx * get_delta_motion(drone.dx + 150)
-									laser.dy = new_dy * get_delta_motion(drone.dx + 150)
-								}
+								laser.dx = new_dx * get_delta_motion(drone.dx + 150)
+								laser.dy = new_dy * get_delta_motion(drone.dx + 150)
 
 								// reset the cooldown to prevent firing too rapidly
 								drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
