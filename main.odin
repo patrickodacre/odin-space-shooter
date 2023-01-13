@@ -2805,7 +2805,7 @@ create_statics :: proc()
 	game.options_players[4] = slot_5
 
 	game.options_in_game_menu[0] = make_text("Continue", i32(2))
-	game.options_in_game_menu[1] = make_text("Exit", i32(2))
+	game.options_in_game_menu[1] = make_text("Quit", i32(2))
 
 	new_game := make_text("New Game")
 	new_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
