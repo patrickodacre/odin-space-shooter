@@ -21,7 +21,7 @@ TARGET_DELTA_TIME :: f64(1000) / FRAMES_PER_SECOND
 WINDOW_WIDTH :: 1600
 WINDOW_HEIGHT :: 960
 HITBOXES_VISIBLE :: false
-PLAY_SOUND :: true
+PLAY_SOUND :: false
 
 BACKGROUND_SPEED :: 100
 
@@ -61,6 +61,8 @@ Game :: struct
 	is_restarting: bool,
 	is_render_title: bool,
 	is_render_start_menu: bool,
+	is_render_in_game_menu: bool,
+
 	begin_stage_animation: Animation,
 	fade_animation: Animation,
 	reset_animation: Animation,
@@ -147,6 +149,7 @@ Game :: struct
 
 	options_start_menu: [3]Text,
 	options_players: [5]Text,
+	options_in_game_menu: [2]Text,
 }
 
 Player_Data :: struct
@@ -436,6 +439,7 @@ main :: proc()
 				#partial switch event.key.keysym.scancode
 				{
 					case .ESCAPE:
+					{
 						if game.screen == Screen.NewGame
 						{
 							game.screen = Screen.Home
@@ -455,24 +459,20 @@ main :: proc()
 
 						game.cursor_current_index = 0
 
-					case .Q: {
-						// can't quit when dead
-						if game.screen == Screen.Play || game.player.health > 0
+						// can't pause when player is dead
+						if game.screen == Screen.Play && game.player.health > 0
 						{
-							game.fade_animation.start()
 
-							reset_entities()
-
-							game.is_invincible = true
-							game.player.health = 0
-							game.is_restarting = false
-							game.is_highscores_updated = false
-
-							game.is_render_title = true
-							game.is_render_start_menu = true
-							game.current_cursor_map_index = 0
-							game.screen = Screen.Home
+							if game.is_render_in_game_menu
+							{
+								hide_game_menu()
+							}
+							else
+							{
+								show_game_menu()
+							}
 						}
+
 					}
 					case .L:
 						fmt.println("log")
@@ -618,9 +618,52 @@ main :: proc()
 							game.is_render_start_menu = false
 
 						}
+						else if game.screen == Screen.Play && game.is_render_in_game_menu
+						{
+							// continue
+							if game.cursor_current_index == 0
+							{
+								hide_game_menu()
+							}
+							else
+							{ // quit
+
+								save_player_and_highscore()
+
+								game.fade_animation.start()
+
+								reset_entities()
+
+								game.is_invincible = true
+								game.player.health = 0
+								game.is_restarting = false
+								game.is_highscores_updated = false
+
+								game.is_render_title = true
+								game.is_render_start_menu = true
+								game.is_render_in_game_menu = false
+								game.cursor_current_index = 0
+								game.screen = Screen.Home
+							}
+						}
+
+
 
 					}
 					case .S, .DOWN: {
+
+						// in game menu
+						if game.screen == Screen.Play && game.is_render_in_game_menu
+						{
+							game.cursor_current_index += 1
+							if game.cursor_current_index > (len(game.options_in_game_menu) - 1)
+							{
+								game.cursor_current_index = 0
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
+
 						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
 						{
 							game.cursor_current_index += 1
@@ -663,6 +706,18 @@ main :: proc()
 
 					}
 					case .W, .UP:
+
+						// in game menu
+						if game.screen == Screen.Play && game.is_render_in_game_menu
+						{
+							game.cursor_current_index -= 1
+							if game.cursor_current_index < 0
+							{
+								game.cursor_current_index = (len(game.options_in_game_menu) - 1)
+							}
+
+							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+						}
 
 						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
 						{
@@ -1236,48 +1291,8 @@ main :: proc()
 			// Player Dead
 			if game.player.health == 0 && !game.is_restarting
 			{
-				// save score
-				for player in &game.players
-				{
-					if game.player_name == player.name && game.current_score > player.score
-					{
-						player.score = game.current_score
-					}
-				}
 
-				if ok := save_player_data(); !ok
-				{
-					fmt.println("Error saving data")
-				}
-
-				if !game.is_highscores_updated
-				{
-					temp_scores := [6]Player_Data{}
-					temp_scores[0] = game.highscores[0]
-					temp_scores[1] = game.highscores[1]
-					temp_scores[2] = game.highscores[2]
-					temp_scores[3] = game.highscores[3]
-					temp_scores[4] = game.highscores[4]
-					temp_scores[5] = Player_Data{game.player_name, game.current_score}
-
-					slice.sort_by(temp_scores[:], proc(a, b: Player_Data) -> bool {
-						return a.score > b.score
-					})
-
-					game.highscores[0] = temp_scores[0]
-					game.highscores[1] = temp_scores[1]
-					game.highscores[2] = temp_scores[2]
-					game.highscores[3] = temp_scores[3]
-					game.highscores[4] = temp_scores[4]
-
-					if ok := save_highscore_data(); !ok
-					{
-						fmt.println("error saving highscores")
-					}
-
-					game.is_highscores_updated = true
-				}
-
+				save_player_and_highscore()
 
 				msg := game.texts[TextId.DeathScreen]
 				msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
@@ -1818,6 +1833,65 @@ main :: proc()
 			}
 		}
 
+
+		// in-game menu
+		if game.is_render_in_game_menu
+		{
+			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, 100)
+
+			SDL.RenderFillRect(game.renderer, &game.overlay)
+
+			// rects and textures
+			menu := SDL.Rect{}
+			cont := game.options_in_game_menu[0]
+			quit := game.options_in_game_menu[1]
+			cursor := game.texts[TextId.Cursor]
+
+
+			menu.w = (WINDOW_WIDTH / 2) - (100)
+			menu.h = cont.dest.h + quit.dest.h + 200
+			menu.x = (WINDOW_WIDTH / 2) - (menu.w / 2)
+			menu.y = (WINDOW_HEIGHT / 2) - (menu.h / 2)
+
+			// aim for equal distance from center for both CONT and QUIT options
+			starting_x : i32 = (WINDOW_WIDTH / 2)
+			starting_y : i32 = (WINDOW_HEIGHT / 2)
+
+			option_heights := cont.dest.h + quit.dest.h
+
+			cont.dest.x = starting_x - (cont.dest.w / 2)
+			cont.dest.y = starting_y - ((option_heights / 2) + 30)
+
+			quit.dest.x = starting_x - (quit.dest.w / 2)
+			quit.dest.y = starting_y + 30
+
+			if game.cursor_current_index == 0
+			{
+
+				SDL.SetTextureAlphaMod(cont.tex, 255)
+				SDL.SetTextureAlphaMod(quit.tex, 100)
+				cursor.dest.x = cont.dest.x - 20
+				cursor.dest.y = cont.dest.y + (cont.dest.h / 4)
+			}
+			else
+			{
+				SDL.SetTextureAlphaMod(cont.tex, 100)
+				SDL.SetTextureAlphaMod(quit.tex, 255)
+				cursor.dest.x = quit.dest.x - 20
+				cursor.dest.y = quit.dest.y + (quit.dest.h / 4)
+			}
+
+			// render
+			SDL.SetRenderDrawColor(game.renderer, 255, 255, 255, 100)
+			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+			SDL.RenderFillRect(game.renderer, &menu)
+
+			SDL.RenderCopy(game.renderer, cont.tex, nil, &cont.dest)
+			SDL.RenderCopy(game.renderer, quit.tex, nil, &quit.dest)
+
+			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+		}
 
 
 		// ... end LOOP code
@@ -2730,6 +2804,9 @@ create_statics :: proc()
 	slot_5.dest.y = slot_4.dest.y + slot_4.dest.h + 50
 	game.options_players[4] = slot_5
 
+	game.options_in_game_menu[0] = make_text("Continue", i32(2))
+	game.options_in_game_menu[1] = make_text("Exit", i32(2))
+
 	new_game := make_text("New Game")
 	new_game.dest.x = (WINDOW_WIDTH / 2) - (new_game.dest.w / 2)
 	new_game.dest.y = (WINDOW_HEIGHT / 2) + 100
@@ -3201,4 +3278,58 @@ save_player_data :: proc() -> bool
 	os.write_string(file_handler, string(json_bytes))
 
 	return true
+}
+
+hide_game_menu :: proc()
+{
+	game.is_render_in_game_menu = false
+	game.is_invincible = false
+	game.is_paused = false
+}
+
+show_game_menu :: proc()
+{
+	game.is_render_in_game_menu = true
+	game.is_invincible = true
+	game.is_paused = true
+
+	// faded overlay:
+}
+
+save_player_and_highscore :: proc()
+{
+	if ok := save_player_data(); !ok
+	{
+		fmt.println("Error saving data")
+	}
+
+	if !game.is_highscores_updated
+	{
+		temp_scores := [6]Player_Data{}
+		temp_scores[0] = game.highscores[0]
+		temp_scores[1] = game.highscores[1]
+		temp_scores[2] = game.highscores[2]
+		temp_scores[3] = game.highscores[3]
+		temp_scores[4] = game.highscores[4]
+		temp_scores[5] = Player_Data{game.player_name, game.current_score}
+
+		slice.sort_by(temp_scores[:], proc(a, b: Player_Data) -> bool {
+			return a.score > b.score
+		})
+
+		game.highscores[0] = temp_scores[0]
+		game.highscores[1] = temp_scores[1]
+		game.highscores[2] = temp_scores[2]
+		game.highscores[3] = temp_scores[3]
+		game.highscores[4] = temp_scores[4]
+
+		if ok := save_highscore_data(); !ok
+		{
+			fmt.println("error saving highscores")
+		}
+
+		game.is_highscores_updated = true
+	}
+
+
 }
