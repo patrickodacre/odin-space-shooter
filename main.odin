@@ -189,6 +189,7 @@ TextId :: enum
 	ScoreLabel,
 	Cursor,
 	Empty,
+	PlayerName,
 
 	LoadGameTitle,
 	CreatePlayerTitle,
@@ -535,7 +536,13 @@ main :: proc()
 								    }
 
 									os.write_string(file_handler, string(json_bytes))
+
 									fmt.println("New Player Created")
+
+									if game.texts[TextId.PlayerName].tex == nil
+									{
+										game.texts[TextId.PlayerName] = make_text(cstring(raw_data(game.player_name)))
+									}
 
 								}
 
@@ -555,6 +562,11 @@ main :: proc()
 							if game.players[game.selected_player_index].name != ""
 							{
 								fmt.println("OVERWRITING")
+							}
+
+							if game.texts[TextId.PlayerName].tex != nil
+							{
+								SDL.DestroyTexture(game.texts[TextId.PlayerName].tex)
 							}
 
 							game.screen = Screen.CreatePlayer
@@ -593,6 +605,12 @@ main :: proc()
 						{
 
 							game.player_name = game.players[game.cursor_current_index].name
+
+							if game.texts[TextId.PlayerName].tex == nil
+							{
+								game.texts[TextId.PlayerName] = make_text(cstring(raw_data(game.player_name)))
+							}
+
 							game.current_score = 0
 
 							game.begin_stage_animation.start()
@@ -1491,33 +1509,16 @@ main :: proc()
 			// Print Name & score
 			{
 				// player name:
-				prev_chars_w : i32 = 0
-				{
-					char_spacing : i32 = 2
+				player_name := &game.texts[TextId.PlayerName]
 
-					starting_x : i32 = 10
-					starting_y : i32 = 10
-
-					for c in game.player_name
-					{
-						// grab the texture for the single character
-						char : Text = game.chars[c]
-
-						// render this character after the previous one
-						char.dest.x = starting_x + prev_chars_w
-						char.dest.y = starting_y
-
-						SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
-
-						prev_chars_w += char.dest.w + char_spacing
-					}
-				}
-
+				player_name.dest.x = 10
+				player_name.dest.y = 10
+				SDL.RenderCopy(game.renderer, player_name.tex, nil, &player_name.dest)
 
 				// score label
 				{
 					score := game.texts[TextId.ScoreLabel]
-					score.dest.x = prev_chars_w + 30
+					score.dest.x = player_name.dest.x + player_name.dest.w + 30
 					score.dest.y = 10
 					SDL.RenderCopy(game.renderer, score.tex, nil, &score.dest)
 
