@@ -1691,8 +1691,6 @@ main :: proc()
 			{
 				slot := &game.ordered_list[i]
 
-				// alpha : u8 = 255
-				// SDL.SetTextureAlphaMod(slot.tex, alpha)
 				SDL.RenderCopy(game.renderer, slot.tex, nil, &slot.dest)
 
 				if highscore.name == "" do continue
@@ -1710,7 +1708,6 @@ main :: proc()
 					l.dest.x = starting_x + prev_chars_w
 					l.dest.y = starting_y
 
-					// SDL.SetTextureAlphaMod(l.tex, alpha)
 					SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
 
 					prev_chars_w += l.dest.w + char_spacing
@@ -1729,7 +1726,6 @@ main :: proc()
 					l.dest.x = starting_x + prev_chars_w
 					l.dest.y = starting_y
 
-					// SDL.SetTextureAlphaMod(l.tex, alpha)
 					SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
 
 					prev_chars_w += l.dest.w + char_spacing
