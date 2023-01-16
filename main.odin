@@ -1586,8 +1586,12 @@ main :: proc()
 				// very smooth transition
 				if PLAY_SOUND
 				{
-					game.to_music_id = game.to_music_id == MusicId.Track_3 ? MusicId.Track_2 : MusicId.Track_3
-					game.music_animation.start()
+					// beat level 5
+					if game.current_level == 6
+					{
+						game.to_music_id = MusicId.Track_2
+						game.music_animation.start()
+					}
 				}
 
 			}
@@ -3158,10 +3162,10 @@ create_animations :: proc()
 	}
 
 	m.frames[0] = Frame{
-		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 5),
-		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 5),
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
 		action = proc(_index: int) {
-			time := (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 5)
+			time := (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2)
 			MIX.FadeOutMusic(i32(time))
 		},
 	}
