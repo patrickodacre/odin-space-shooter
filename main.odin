@@ -148,7 +148,7 @@ Game :: struct
 	is_highscores_updated: bool,
 
 	options_start_menu: [3]Text,
-	options_players: [5]Text,
+	ordered_list: [5]Text,
 	options_in_game_menu: [2]Text,
 }
 
@@ -667,7 +667,7 @@ main :: proc()
 						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
 						{
 							game.cursor_current_index += 1
-							if game.cursor_current_index > (len(game.options_players) - 1)
+							if game.cursor_current_index > (len(game.ordered_list) - 1)
 							{
 								game.cursor_current_index = 0
 							}
@@ -724,7 +724,7 @@ main :: proc()
 							game.cursor_current_index -= 1
 							if game.cursor_current_index < 0
 							{
-								game.cursor_current_index = (len(game.options_players) - 1)
+								game.cursor_current_index = (len(game.ordered_list) - 1)
 							}
 
 							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
@@ -1609,7 +1609,7 @@ main :: proc()
 
 			for highscore, i in game.highscores
 			{
-				slot := &game.options_players[i]
+				slot := &game.ordered_list[i]
 
 				// alpha : u8 = 255
 				// SDL.SetTextureAlphaMod(slot.tex, alpha)
@@ -1671,7 +1671,7 @@ main :: proc()
 			cursor := game.texts[TextId.Cursor]
 
 			// New Game and Load Game Options
-			for option, i in &game.options_players
+			for option, i in &game.ordered_list
 			{
 				alpha : u8
 
@@ -1732,7 +1732,7 @@ main :: proc()
 			cursor := game.texts[TextId.Cursor]
 
 			// New Game and Load Game Options
-			for option, i in &game.options_players
+			for option, i in &game.ordered_list
 			{
 				alpha : u8
 
@@ -2779,30 +2779,30 @@ create_statics :: proc()
 	select_slot.dest.y = (WINDOW_HEIGHT / 6)
 	game.texts[TextId.CreatePlayerSelectSlot] = select_slot
 
-	slot_1 := make_text("1.")
-	slot_1.dest.x = select_slot.dest.x
-	slot_1.dest.y = select_slot.dest.y + select_slot.dest.h + 100
-	game.options_players[0] = slot_1
+	one := make_text("1.")
+	one.dest.x = select_slot.dest.x
+	one.dest.y = select_slot.dest.y + select_slot.dest.h + 100
+	game.ordered_list[0] = one
 
-	slot_2 := make_text("2.")
-	slot_2.dest.x = slot_1.dest.x
-	slot_2.dest.y = slot_1.dest.y + slot_1.dest.h + 50
-	game.options_players[1] = slot_2
+	two := make_text("2.")
+	two.dest.x = one.dest.x
+	two.dest.y = one.dest.y + one.dest.h + 50
+	game.ordered_list[1] = two
 
-	slot_3 := make_text("3.")
-	slot_3.dest.x = slot_2.dest.x
-	slot_3.dest.y = slot_2.dest.y + slot_2.dest.h + 50
-	game.options_players[2] = slot_3
+	three := make_text("3.")
+	three.dest.x = two.dest.x
+	three.dest.y = two.dest.y + two.dest.h + 50
+	game.ordered_list[2] = three
 
-	slot_4 := make_text("4.")
-	slot_4.dest.x = slot_3.dest.x
-	slot_4.dest.y = slot_3.dest.y + slot_3.dest.h + 50
-	game.options_players[3] = slot_4
+	four := make_text("4.")
+	four.dest.x = three.dest.x
+	four.dest.y = three.dest.y + three.dest.h + 50
+	game.ordered_list[3] = four
 
-	slot_5 := make_text("5.")
-	slot_5.dest.x = slot_4.dest.x
-	slot_5.dest.y = slot_4.dest.y + slot_4.dest.h + 50
-	game.options_players[4] = slot_5
+	five := make_text("5.")
+	five.dest.x = four.dest.x
+	five.dest.y = four.dest.y + four.dest.h + 50
+	game.ordered_list[4] = five
 
 	game.options_in_game_menu[0] = make_text("Continue", i32(2))
 	game.options_in_game_menu[1] = make_text("Quit", i32(2))
