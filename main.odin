@@ -1863,7 +1863,7 @@ main :: proc()
 			cont.dest.x = starting_x - (cont.dest.w / 2)
 			cont.dest.y = starting_y - ((option_heights / 2) + 30)
 
-			quit.dest.x = starting_x - (quit.dest.w / 2)
+			quit.dest.x = cont.dest.x
 			quit.dest.y = starting_y + 30
 
 			if game.cursor_current_index == 0
