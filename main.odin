@@ -2782,7 +2782,7 @@ create_statics :: proc()
 	// texts
 	game.texts[TextId.HomeTitle] = make_text("Space Shooter", i32(4))
 
-	game.texts[TextId.DeathScreen] = make_text("Oh no!", i32(2))
+	game.texts[TextId.DeathScreen] = make_text("Game Over", i32(2))
 	game.texts[TextId.Loading] = make_text("Loading...", i32(2))
 	game.texts[TextId.ScoreLabel] = make_text("Score : ")
 
