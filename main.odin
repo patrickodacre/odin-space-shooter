@@ -56,8 +56,6 @@ FRAME_TIMER_NUKE_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 2
 Game :: struct
 {
 
-	active_animations: [dynamic]Animation,
-
 	sounds: [SoundId]^MIX.Chunk,
 	music: [MusicId]^MIX.Music,
 	is_restarting: bool,
@@ -301,7 +299,6 @@ Entity :: struct
 }
 
 game := Game{
-	active_animations = make([dynamic]Animation),
 
 	chars = make(map[rune]Text),
 	screen = Screen.Home,
