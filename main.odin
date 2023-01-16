@@ -53,16 +53,10 @@ FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 FRAME_TIMER_NUKE_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 2
 
 
-MusicId :: enum
-{
-	BG,
-	Track_1,
-	Track_2,
-	Track_3,
-}
-
 Game :: struct
 {
+
+	active_animations: [dynamic]Animation,
 
 	sounds: [SoundId]^MIX.Chunk,
 	music: [MusicId]^MIX.Music,
@@ -74,9 +68,13 @@ Game :: struct
 	begin_stage_animation: Animation,
 	fade_animation: Animation,
 	reset_animation: Animation,
+	music_animation: Animation,
+	level_change_animation: Animation,
+	to_music_id: MusicId,
 
 	font: ^SDL_TTF.Font,
 	texts: [TextId]Text,
+	levels: [10]Text,
 	chars: map[rune]Text,
 
 	screen: Screen,
@@ -143,7 +141,11 @@ Game :: struct
 	overlay_alpha: u8,
 
 	// score
+	prev_score: int,
 	current_score: int,
+	is_leveling_up: bool,
+	current_level: int,
+	current_level_alpha: u8,
 
 	// cursor movement for menu select, etc.
 	letters: [28]Text,
@@ -164,6 +166,14 @@ Player_Data :: struct
 {
 	name: string,
 	score: int,
+}
+
+MusicId :: enum
+{
+	BG,
+	Track_1,
+	Track_2,
+	Track_3,
 }
 
 SoundId :: enum
@@ -291,6 +301,8 @@ Entity :: struct
 }
 
 game := Game{
+	active_animations = make([dynamic]Animation),
+
 	chars = make(map[rune]Text),
 	screen = Screen.Home,
 	is_render_title = true,
@@ -366,19 +378,15 @@ main :: proc()
 	// one channel for music
 	game.music[MusicId.BG] = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
 	assert(game.music[MusicId.BG] != nil, SDL.GetErrorString())
-	defer MIX.FreeMusic(game.music[MusicId.BG])
 
 	game.music[MusicId.Track_1] = MIX.LoadMUS("assets/sounds/track-1.ogg")
 	assert(game.music[MusicId.Track_1] != nil, SDL.GetErrorString())
-	defer MIX.FreeMusic(game.music[MusicId.Track_1])
 
 	game.music[MusicId.Track_2] = MIX.LoadMUS("assets/sounds/track-2.ogg")
 	assert(game.music[MusicId.Track_2] != nil, SDL.GetErrorString())
-	defer MIX.FreeMusic(game.music[MusicId.Track_2])
 
 	game.music[MusicId.Track_3] = MIX.LoadMUS("assets/sounds/track-3.ogg")
 	assert(game.music[MusicId.Track_3] != nil, SDL.GetErrorString())
-	defer MIX.FreeMusic(game.music[MusicId.Track_3])
 
 	window := SDL.CreateWindow(
 		"Odin Space Shooter",
@@ -639,7 +647,8 @@ main :: proc()
 
 							if PLAY_SOUND
 							{
-								MIX.FadeInMusic(game.music[MusicId.Track_2], -1, 15000)
+								game.to_music_id = MusicId.Track_3
+								game.music_animation.start()
 							}
 
 						}
@@ -652,6 +661,12 @@ main :: proc()
 							}
 							else
 							{ // quit
+
+								if PLAY_SOUND
+								{
+									game.to_music_id = MusicId.BG
+									game.music_animation.start()
+								}
 
 								save_player_and_highscore()
 
@@ -1009,6 +1024,8 @@ main :: proc()
 						laser.health = 0
 
 				    	explode_drone(&drone)
+
+						game.prev_score = game.current_score
 				    	game.current_score += 1
 
 				    	spawn_nuke_pu: for index in 0..<NUM_NUKE_PU
@@ -1317,7 +1334,6 @@ main :: proc()
 			if game.player.health == 0 && !game.is_restarting
 			{
 
-				MIX.FadeOutMusic(5000)
 				save_player_and_highscore()
 
 				msg := game.texts[TextId.DeathScreen]
@@ -1329,8 +1345,12 @@ main :: proc()
 
 				if game.stage_reset_timer < 0
 				{
+					if PLAY_SOUND
+					{
+						game.to_music_id = MusicId.Track_3
+						game.music_animation.start()
+					}
 
-					MIX.FadeInMusic(game.music[MusicId.Track_2], -1, 15000)
 					game.reset_animation.start()
 					game.begin_stage_animation.start()
 					game.fade_animation.start()
@@ -1545,6 +1565,33 @@ main :: proc()
 
 			}
 
+			// Change level every 10 points
+			if (!game.is_leveling_up) &&
+			game.prev_score > 0 &&
+			(game.prev_score %% 10 == 0) &&
+			game.current_score > game.prev_score
+			{
+				game.is_leveling_up = true
+			}
+
+			// change music?
+			if !game.level_change_animation.is_active &&
+			game.is_leveling_up &&
+			game.current_level < 9
+			{
+				game.current_level += 1
+
+				game.level_change_animation.start()
+
+				// very smooth transition
+				if PLAY_SOUND
+				{
+					game.to_music_id = game.to_music_id == MusicId.Track_3 ? MusicId.Track_2 : MusicId.Track_3
+					game.music_animation.start()
+				}
+
+			}
+
 			// Print Name & score
 			{
 				// player name:
@@ -1627,6 +1674,8 @@ main :: proc()
 		game.begin_stage_animation.maybe_run()
 		game.fade_animation.maybe_run()
 		game.reset_animation.maybe_run()
+		game.music_animation.maybe_run()
+		game.level_change_animation.maybe_run()
 
 		// render highscores
 		if game.screen == Screen.Highscores
@@ -2239,7 +2288,9 @@ create_entities :: proc()
 
 					explode_nuke(n)
 
+					game.prev_score = game.current_score
 			    	game.current_score += 1
+
 
 					break detect_nuke_collision
 				}
@@ -2779,6 +2830,17 @@ explode :: proc(x, y: i32, dx: f64)
 
 create_statics :: proc()
 {
+	game.levels[0] = make_text("Level 0", i32(2))
+	game.levels[1] = make_text("Level 1", i32(2))
+	game.levels[2] = make_text("Level 2", i32(2))
+	game.levels[3] = make_text("Level 3", i32(2))
+	game.levels[4] = make_text("Level 4", i32(2))
+	game.levels[5] = make_text("Level 5", i32(2))
+	game.levels[6] = make_text("Level 6", i32(2))
+	game.levels[7] = make_text("Level 7", i32(2))
+	game.levels[8] = make_text("Level 8", i32(2))
+	game.levels[9] = make_text("Level 9", i32(2))
+
 	// texts
 	game.texts[TextId.HomeTitle] = make_text("Space Shooter", i32(4))
 
@@ -2940,7 +3002,177 @@ create_statics :: proc()
 
 create_animations :: proc()
 {
+	{
+		game.level_change_animation = Animation{}
+		a := &game.level_change_animation
+		a.frames = make([dynamic]Frame, 3, 3)
+		a.current_frame = 0
+		a.is_active = false
+		a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0)
+		{
+			game.level_change_animation.current_frame = 0
+			game.level_change_animation.is_active = true
+		}
+		a.maybe_run = proc(_index: int = 0)
+		{
 
+			a := &game.level_change_animation
+
+			if game.player.health == 0
+			{
+				a.is_active = false
+			}
+
+			// finished animation
+			if a.current_frame > (len(a.frames) - 1)
+			{
+				a.current_frame = 0
+				a.is_active = false
+			}
+
+			// do animation
+			if a.is_active
+			{
+
+				frame := &a.frames[a.current_frame]
+
+				frame.action(_index)
+
+				frame.timer -= TARGET_DELTA_TIME
+
+				// reset and move to the next frame
+				if frame.timer < 0
+				{
+					frame.timer = frame.duration
+					a.current_frame += 1
+				}
+
+			}
+		}
+
+
+		a.frames[0] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+			action = proc(_index: int) {
+
+				new_alpha := game.current_level_alpha + 5
+
+				// check overflow
+				if new_alpha < game.current_level_alpha
+				{
+					new_alpha = 255
+				}
+
+				game.current_level_alpha = new_alpha
+
+				level := &game.levels[game.current_level]
+				level.dest.x = (WINDOW_WIDTH / 2) - (level.dest.w / 2)
+				level.dest.y = (WINDOW_HEIGHT / 2)
+				SDL.SetTextureAlphaMod(level.tex, game.current_level_alpha)
+				SDL.RenderCopy(game.renderer, level.tex, nil, &level.dest)
+			},
+		}
+
+		a.frames[1] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 1),
+			action = proc(_index: int) {
+				game.current_level_alpha = 255
+
+				level := &game.levels[game.current_level]
+				level.dest.x = (WINDOW_WIDTH / 2) - (level.dest.w / 2)
+				level.dest.y = (WINDOW_HEIGHT / 2)
+				SDL.SetTextureAlphaMod(level.tex, game.current_level_alpha)
+				SDL.RenderCopy(game.renderer, level.tex, nil, &level.dest)
+			},
+		}
+
+		a.frames[2] = Frame{
+			duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+			timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 2),
+			action = proc(_index: int) {
+
+				new_alpha := game.current_level_alpha - 5
+
+				// check underflow
+				if new_alpha > game.current_level_alpha
+				{
+					// game.is_render_title = false
+					new_alpha = 0
+				}
+
+				game.current_level_alpha = new_alpha
+
+				level := &game.levels[game.current_level]
+				level.dest.x = (WINDOW_WIDTH / 2) - (level.dest.w / 2)
+				level.dest.y = (WINDOW_HEIGHT / 2)
+				SDL.SetTextureAlphaMod(level.tex, game.current_level_alpha)
+				SDL.RenderCopy(game.renderer, level.tex, nil, &level.dest)
+				game.is_leveling_up = false
+			},
+		}
+
+	}
+
+
+	game.music_animation = Animation{}
+	m := &game.music_animation
+	m.frames = make([dynamic]Frame, 2, 2)
+	m.current_frame = 0
+	m.is_active = false
+	m.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0)
+	{
+		game.music_animation.current_frame = 0
+		game.music_animation.is_active = true
+	}
+	m.maybe_run = proc(_index: int = 0)
+	{
+
+		m := &game.music_animation
+		// finished animation
+		if m.current_frame > (len(m.frames) - 1)
+		{
+			m.current_frame = 0
+			m.is_active = false
+		}
+
+		// do animation
+		if m.is_active
+		{
+
+			frame := &m.frames[m.current_frame]
+
+			frame.action(_index)
+
+			frame.timer -= TARGET_DELTA_TIME
+
+			// reset and move to the next frame
+			if frame.timer < 0
+			{
+				frame.timer = frame.duration
+				m.current_frame += 1
+			}
+
+		}
+	}
+
+	m.frames[0] = Frame{
+		duration = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 5),
+		timer = (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 5),
+		action = proc(_index: int) {
+			time := (TARGET_DELTA_TIME * FRAMES_PER_SECOND * 5)
+			MIX.FadeOutMusic(i32(time))
+		},
+	}
+
+	m.frames[1] = Frame{
+		duration = TARGET_DELTA_TIME,
+		timer = TARGET_DELTA_TIME,
+		action = proc(_index: int) {
+			MIX.FadeInMusic(game.music[game.to_music_id], -1, 15000)
+		},
+	}
 
 	// begin new stage
 	// this animation should be timed according to the fade_animation
