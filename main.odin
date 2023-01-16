@@ -53,11 +53,19 @@ FRAME_TIMER_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 4
 FRAME_TIMER_NUKE_EXPLOSIONS : f64 : TARGET_DELTA_TIME * 2
 
 
+MusicId :: enum
+{
+	BG,
+	Track_1,
+	Track_2,
+	Track_3,
+}
+
 Game :: struct
 {
 
 	sounds: [SoundId]^MIX.Chunk,
-	bg_sound_fx: ^MIX.Music,
+	music: [MusicId]^MIX.Music,
 	is_restarting: bool,
 	is_render_title: bool,
 	is_render_start_menu: bool,
@@ -356,9 +364,21 @@ main :: proc()
 	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadMUS
 	// returns Music which is decoded on demand
 	// one channel for music
-	game.bg_sound_fx = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
-	assert(game.bg_sound_fx != nil, SDL.GetErrorString())
-	defer MIX.FreeMusic(game.bg_sound_fx)
+	game.music[MusicId.BG] = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
+	assert(game.music[MusicId.BG] != nil, SDL.GetErrorString())
+	defer MIX.FreeMusic(game.music[MusicId.BG])
+
+	game.music[MusicId.Track_1] = MIX.LoadMUS("assets/sounds/track-1.ogg")
+	assert(game.music[MusicId.Track_1] != nil, SDL.GetErrorString())
+	defer MIX.FreeMusic(game.music[MusicId.Track_1])
+
+	game.music[MusicId.Track_2] = MIX.LoadMUS("assets/sounds/track-2.ogg")
+	assert(game.music[MusicId.Track_2] != nil, SDL.GetErrorString())
+	defer MIX.FreeMusic(game.music[MusicId.Track_2])
+
+	game.music[MusicId.Track_3] = MIX.LoadMUS("assets/sounds/track-3.ogg")
+	assert(game.music[MusicId.Track_3] != nil, SDL.GetErrorString())
+	defer MIX.FreeMusic(game.music[MusicId.Track_3])
 
 	window := SDL.CreateWindow(
 		"Odin Space Shooter",
@@ -403,7 +423,7 @@ main :: proc()
 
 	// https://wiki.libsdl.org/SDL_mixer/Mix_PlayMusic
 	// -1 => infinite loop
-	if PLAY_SOUND do MIX.PlayMusic(game.bg_sound_fx, -1)
+	if PLAY_SOUND do MIX.PlayMusic(game.music[MusicId.BG], -1)
 
 	game_loop : for
 	{
@@ -616,6 +636,11 @@ main :: proc()
 							game.begin_stage_animation.start()
 							game.fade_animation.start()
 							game.is_render_start_menu = false
+
+							if PLAY_SOUND
+							{
+								MIX.FadeInMusic(game.music[MusicId.Track_2], -1, 15000)
+							}
 
 						}
 						else if game.screen == Screen.Play && game.is_render_in_game_menu
@@ -1292,6 +1317,7 @@ main :: proc()
 			if game.player.health == 0 && !game.is_restarting
 			{
 
+				MIX.FadeOutMusic(5000)
 				save_player_and_highscore()
 
 				msg := game.texts[TextId.DeathScreen]
@@ -1304,6 +1330,7 @@ main :: proc()
 				if game.stage_reset_timer < 0
 				{
 
+					MIX.FadeInMusic(game.music[MusicId.Track_2], -1, 15000)
 					game.reset_animation.start()
 					game.begin_stage_animation.start()
 					game.fade_animation.start()
