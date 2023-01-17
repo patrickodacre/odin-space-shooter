@@ -435,420 +435,35 @@ main :: proc()
 
 		start = get_time()
 
-		// Begin LOOP code...
-
-		// 1. Get our Keyboard State :: which keys are pressed?
-		state = SDL.GetKeyboardState(nil)
-
-		game.left = state[SDL.Scancode.A] > 0
-		game.right = state[SDL.Scancode.D] > 0
-		game.up = state[SDL.Scancode.W] > 0
-		game.down = state[SDL.Scancode.S] > 0
-		game.fire = state[SDL.Scancode.SPACE] > 0
-		game.fire_nuke = state[SDL.Scancode.N] > 0
-
 		// 2. Handle any input events :: quit, pause, fire weapons?
 		if SDL.PollEvent(&event)
 		{
 
-			if event.type == SDL.EventType.QUIT
-			{
-				break game_loop
-			}
+			if event.type == SDL.EventType.QUIT { break game_loop }
 
-			if event.type == SDL.EventType.KEYDOWN
+			switch game.screen
 			{
-
-				// a #partial switch allows us to ignore other scancode types;
-				// otherwise, the compiler will refuse to compile the program, alerting us of the unhandled cases
-				#partial switch event.key.keysym.scancode
+				case .Home: if !controls_home(&event) do break game_loop
+				case .NewGame: if !controls_new_game(&event) do break game_loop
+				case .CreatePlayer: if !controls_create_player(&event) do break game_loop
+				case .LoadGame: if !controls_load_game(&event) do break game_loop
+				case .Highscores: if !controls_highscores(&event) do break game_loop
+				case .Play:
 				{
-					case .ESCAPE:
-					{
-						if game.screen == Screen.NewGame
-						{
-							game.screen = Screen.Home
-						}
-						else if game.screen == Screen.Highscores
-						{
-							game.screen = Screen.Home
-						}
-						else if game.screen == Screen.LoadGame
-						{
-							game.screen = Screen.Home
-						}
-						else if game.screen == Screen.CreatePlayer
-						{
-							game.screen = Screen.Home
-						}
-
-						game.cursor_current_index = 0
-
-						// can't pause when player is dead
-						if game.screen == Screen.Play && game.player.health > 0
-						{
-
-							if game.is_render_in_game_menu
-							{
-								hide_game_menu()
-							}
-							else
-							{
-								show_game_menu()
-							}
-						}
-
-					}
-					case .L:
-						fmt.println("log")
-					case .I:
-						game.is_invincible = !game.is_invincible
-						fmt.println("I'm invincible!")
-					case .P:
-						game.is_paused = ! game.is_paused
-					case .SPACE:
-						if game.screen == Screen.CreatePlayer
-						{
-							selected_letter := &game.letters[game.cursor_current_index]
-
-							if selected_letter.text == "BACK"
-							{
-								if len(game.player_name) > 0
-								{
-									shortened_name := game.player_name[:(len(game.player_name) - 1)]
-									game.player_name = shortened_name
-								}
-							}
-							else if selected_letter.text == "DONE"
-							{
-
-								if len(game.player_name) > 3
-								{
-									game.begin_stage_animation.start()
-									game.fade_animation.start()
-
-									// create file::
-									flags := os.O_RDWR
-									file_handler, err_file := os.open("player_data.json", flags, 0)
-									defer os.close(file_handler)
-
-									if err_file != 0
-									{
-										fmt.println("player_data.json does not exist.")
-										break game_loop
-									}
-
-									for player in &game.players
-									{
-										if game.player_name == player.name
-										{
-											// TODO: show some overwrite prompt
-											fmt.println("Player already exists!")
-											break game_loop
-										}
-									}
-
-
-								    new_player := Player_Data{ game.player_name, 0 }
-								    game.players[game.selected_player_index] = new_player
-
-								    json_bytes, err_json := json.marshal(game.players)
-
-								    if err_json != nil
-								    {
-										msg := fmt.tprintf("Expected `json.marshal` to return nil, got %v", err_json)
-								    	break game_loop
-								    }
-
-									os.write_string(file_handler, string(json_bytes))
-
-									fmt.println("New Player Created")
-
-									if game.texts[TextId.PlayerName].tex == nil
-									{
-										game.texts[TextId.PlayerName] = make_text(cstring(raw_data(game.player_name)))
-									}
-
-								}
-
-							}
-							else if len(game.player_name) < 10
-							{
-								game.player_name = strings.concatenate({game.player_name, string(selected_letter.text)})
-							}
-						}
-
-					case .RETURN: {
-
-						if game.screen == Screen.NewGame
-						{
-							game.selected_player_index = game.cursor_current_index
-
-							if game.players[game.selected_player_index].name != ""
-							{
-								fmt.println("OVERWRITING")
-							}
-
-							if game.texts[TextId.PlayerName].tex != nil
-							{
-								SDL.DestroyTexture(game.texts[TextId.PlayerName].tex)
-							}
-
-							game.screen = Screen.CreatePlayer
-							game.cursor_current_index = 0
-						}
-    					else if game.screen == Screen.Highscores
-						{
-							game.screen = Screen.Home
-							break
-						}
-						else if game.screen == Screen.Home
-						{
-							// New Game
-							if game.cursor_current_index == 0
-							{
-								game.screen = Screen.NewGame
-								game.cursor_current_index = 0
-							}
-
-							// Load Game
-							if game.cursor_current_index == 1
-							{
-								game.screen = Screen.LoadGame
-								game.cursor_current_index = 0
-								break
-							}
-
-							// highscores
-							if game.cursor_current_index == 2
-							{
-								game.screen = Screen.Highscores
-								break
-							}
-						}
-						else if game.screen == Screen.LoadGame
-						{
-
-							game.player_name = game.players[game.cursor_current_index].name
-
-							if game.texts[TextId.PlayerName].tex == nil
-							{
-								game.texts[TextId.PlayerName] = make_text(cstring(raw_data(game.player_name)))
-							}
-
-							game.current_score = 0
-
-							game.begin_stage_animation.start()
-							game.fade_animation.start()
-							game.is_render_start_menu = false
-
-							if PLAY_SOUND
-							{
-								game.to_music_id = MusicId.Track_3
-								game.music_animation.start()
-							}
-
-						}
-						else if game.screen == Screen.Play && game.is_render_in_game_menu
-						{
-							// continue
-							if game.cursor_current_index == 0
-							{
-								hide_game_menu()
-							}
-							else
-							{ // quit
-
-								if PLAY_SOUND
-								{
-									game.to_music_id = MusicId.BG
-									game.music_animation.start()
-								}
-
-								save_player_and_highscore()
-
-								game.fade_animation.start()
-
-								reset_entities()
-
-								game.is_invincible = true
-								game.player.health = 0
-								game.is_restarting = false
-								game.is_highscores_updated = false
-
-								game.is_render_title = true
-								game.is_render_start_menu = true
-								game.is_render_in_game_menu = false
-								game.cursor_current_index = 0
-								game.screen = Screen.Home
-							}
-						}
-
-
-
-					}
-					case .S, .DOWN: {
-
-						// in game menu
-						if game.screen == Screen.Play && game.is_render_in_game_menu
-						{
-							game.cursor_current_index += 1
-							if game.cursor_current_index > (len(game.options_in_game_menu) - 1)
-							{
-								game.cursor_current_index = 0
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
-						{
-							game.cursor_current_index += 1
-							if game.cursor_current_index > (len(game.ordered_list) - 1)
-							{
-								game.cursor_current_index = 0
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-						if game.screen == Screen.Home
-						{
-							game.cursor_current_index += 1
-							if game.cursor_current_index > (len(game.options_start_menu) - 1)
-							{
-								game.cursor_current_index = 0
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-						if game.screen == Screen.CreatePlayer
-						{
-							if game.cursor_current_index >= 26
-							{
-								game.cursor_current_index = 0
-							}
-							else if game.cursor_current_index <= 12
-							{
-								game.cursor_current_index += 13
-							}
-							else
-							{
-								game.cursor_current_index = 26
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-					}
-					case .W, .UP:
-
-						// in game menu
-						if game.screen == Screen.Play && game.is_render_in_game_menu
-						{
-							game.cursor_current_index -= 1
-							if game.cursor_current_index < 0
-							{
-								game.cursor_current_index = (len(game.options_in_game_menu) - 1)
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-						if game.screen == Screen.NewGame || game.screen == Screen.LoadGame
-						{
-							game.cursor_current_index -= 1
-							if game.cursor_current_index < 0
-							{
-								game.cursor_current_index = (len(game.ordered_list) - 1)
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-						if game.screen == Screen.Home
-						{
-							game.cursor_current_index -= 1
-							if game.cursor_current_index < 0
-							{
-								game.cursor_current_index = (len(game.options_start_menu) - 1)
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-						if game.screen == Screen.CreatePlayer
-						{
-							if game.cursor_current_index >= 26
-							{
-								game.cursor_current_index = 13
-							}
-							else if game.cursor_current_index >= 13
-							{
-								game.cursor_current_index -= 13
-							}
-							else
-							{
-								game.cursor_current_index = 26
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-					case .A, .LEFT:
-						if game.screen == Screen.CreatePlayer
-						{
-							if game.cursor_current_index == 0
-							{
-								game.cursor_current_index = 12
-							}
-							else if game.cursor_current_index == 13
-							{
-								game.cursor_current_index = 25
-							}
-							else if game.cursor_current_index == 26
-							{
-								game.cursor_current_index = 27
-							}
-							else
-							{
-								game.cursor_current_index -= 1
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-					case .D, .RIGHT:
-
-						if game.screen == Screen.CreatePlayer
-						{
-							if game.cursor_current_index == 12
-							{
-								game.cursor_current_index = 0
-							}
-							else if game.cursor_current_index == 25
-							{
-								game.cursor_current_index = 13
-							}
-							else if game.cursor_current_index == 27
-							{
-								game.cursor_current_index = 26
-							}
-							else
-							{
-								game.cursor_current_index += 1
-							}
-
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
-						}
-
-
-
-
+					if !controls_game(&event) do break game_loop
+
+					state = SDL.GetKeyboardState(nil)
+
+					game.left = state[SDL.Scancode.A] > 0
+					game.right = state[SDL.Scancode.D] > 0
+					game.up = state[SDL.Scancode.W] > 0
+					game.down = state[SDL.Scancode.S] > 0
+					game.fire = state[SDL.Scancode.SPACE] > 0
+					game.fire_nuke = state[SDL.Scancode.N] > 0
 
 				}
-
 			}
+
 		}
 
 		/****************************
@@ -857,93 +472,7 @@ main :: proc()
 
 		do_background()
 
-		// create player
-		if game.screen == Screen.CreatePlayer
-		{
-
-			title := game.texts[TextId.CreatePlayerTitle]
-
-			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
-
-			bottom_of_text_select : i32 = 0
-			// render letter options
-			{
-				char_spacing : i32 = 30
-
-				letters_per_row : i32 = 12
-				total_spacing := char_spacing * (letters_per_row  - 1)
-				char_width := game.letters[0].dest.w
-				letter_options_width : i32 = (char_width * letters_per_row) + total_spacing
-
-				starting_x : i32 = (WINDOW_WIDTH / 2) - (letter_options_width / 2)
-				starting_y : i32 = title.dest.y + 100
-				prev_chars_w : i32 = 0
-				prev_chars_y : i32 = 0
-
-				bottom_of_text_select = starting_y
-
-				for letter, i in &game.letters
-				{
-					letter.dest.x = starting_x + prev_chars_w
-					letter.dest.y = starting_y + prev_chars_y
-
-					if i == int(letters_per_row) || i == int((letters_per_row * 2) + 1)
-					{
-						prev_chars_y += letter.dest.h + 10
-						prev_chars_w = 0
-
-						bottom_of_text_select += prev_chars_y
-					}
-					else
-					{
-						prev_chars_w += letter.dest.w + char_spacing
-					}
-
-					alpha : u8 = i == game.cursor_current_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
-					SDL.SetTextureAlphaMod(letter.tex, alpha)
-					defer SDL.SetTextureAlphaMod(letter.tex, 255)
-					SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
-
-				}
-			}
-
-			cursor := game.texts[TextId.Cursor]
-			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
-
-			// render game.player_name
-			{
-
-				char_spacing : i32 = 10
-				prev_chars_w : i32 = 0
-
-				player_name_len : i32 = i32(len(game.player_name))
-				char_width : i32 = game.chars[utf8.string_to_runes("A")[0]].dest.w * 2
-
-				name_width := (player_name_len * char_width) + ((char_spacing * player_name_len) -1)
-
-				starting_x : i32 = (WINDOW_WIDTH / 2) - i32(name_width / 2)
-				starting_y : i32 = bottom_of_text_select + 20
-
-				// iterate characters in the string
-				for c in game.player_name
-				{
-					// grab the texture for the single character
-					char : Text = game.chars[c]
-
-					// render this character after the previous one
-					char.dest.x = starting_x + prev_chars_w
-					char.dest.y = starting_y
-					char.dest.w *= 2
-					char.dest.h *= 2
-
-					SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
-
-					prev_chars_w += char.dest.w + char_spacing
-				}
-
-			}
-
-		}
+		if game.screen == Screen.CreatePlayer do render_create_player_screen()
 
 		// render screen play
 		if game.screen == Screen.Play
@@ -3601,3 +3130,530 @@ do_background :: proc()
 
 
 }
+
+render_create_player_screen :: proc()
+{
+
+	title := game.texts[TextId.CreatePlayerTitle]
+	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+
+	bottom_of_text_select : i32 = 0
+	// render letter options
+	{
+		// settings:
+		char_spacing : i32 : 30
+		letters_per_row : i32 : 6
+
+		total_spacing := char_spacing * (letters_per_row  - 1)
+		char_width := game.letters[0].dest.w
+		letter_options_width : i32 = (char_width * letters_per_row) + total_spacing
+
+		starting_x : i32 = (WINDOW_WIDTH / 2) - (letter_options_width / 2)
+		starting_y : i32 = title.dest.y + 100
+		prev_chars_w : i32 = 0
+		prev_chars_y : i32 = 0
+
+		bottom_of_text_select = starting_y
+
+		count : i32 = 0
+		for letter, i in &game.letters
+		{
+			count += 1
+			letter.dest.x = starting_x + prev_chars_w
+			letter.dest.y = starting_y + prev_chars_y
+
+			if i > 0 && (count %% letters_per_row == 0)
+			{
+				prev_chars_y += letter.dest.h + 10
+				prev_chars_w = 0
+
+				bottom_of_text_select += prev_chars_y
+			}
+			else
+			{
+				prev_chars_w += letter.dest.w + char_spacing
+			}
+
+			alpha : u8 = i == game.cursor_current_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
+			SDL.SetTextureAlphaMod(letter.tex, alpha)
+			defer SDL.SetTextureAlphaMod(letter.tex, 255)
+			SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
+
+		}
+	}
+
+	// render game.player_name
+	{
+
+		char_spacing : i32 = 10
+		prev_chars_w : i32 = 0
+
+		player_name_len : i32 = i32(len(game.player_name))
+		char_width : i32 = game.chars[utf8.string_to_runes("A")[0]].dest.w * 2
+
+		name_width := (player_name_len * char_width) + ((char_spacing * player_name_len) -1)
+
+		starting_x : i32 = (WINDOW_WIDTH / 2) - i32(name_width / 2)
+		starting_y : i32 = bottom_of_text_select + 20
+
+		// iterate characters in the string
+		for c in game.player_name
+		{
+			// grab the texture for the single character
+			char : Text = game.chars[c]
+
+			// render this character after the previous one
+			char.dest.x = starting_x + prev_chars_w
+			char.dest.y = starting_y
+			char.dest.w *= 2
+			char.dest.h *= 2
+
+			SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+			prev_chars_w += char.dest.w + char_spacing
+		}
+
+	}
+
+}
+
+/*===========================
+	CONTROLS
+ ===========================*/
+controls_game :: proc(event: ^SDL.Event) -> bool
+{
+
+	if event.type != SDL.EventType.KEYDOWN do return true
+
+	key := event.key.keysym.scancode
+
+	if key == .I
+	{
+		game.is_invincible = !game.is_invincible
+	}
+
+	if key == .P
+	{
+		game.is_paused = ! game.is_paused
+	}
+
+	if key == .ESCAPE
+	{
+		if game.player.health < 1 do return true
+
+		if game.is_render_in_game_menu do hide_game_menu()
+		else do show_game_menu()
+	}
+
+	if key ==  .S || key == .DOWN
+	{
+		if !game.is_render_in_game_menu do return true
+
+		game.cursor_current_index += 1
+		if game.cursor_current_index > (len(game.options_in_game_menu) - 1)
+		{
+			game.cursor_current_index = 0
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key ==  .W || key == .UP
+	{
+		if !game.is_render_in_game_menu do return true
+
+		game.cursor_current_index -= 1
+		if game.cursor_current_index < 0
+		{
+			game.cursor_current_index = (len(game.options_in_game_menu) - 1)
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .RETURN
+	{
+		if !game.is_render_in_game_menu do return true
+
+		// continue
+		if game.cursor_current_index == 0 do hide_game_menu()
+		// quit
+		else if game.cursor_current_index == 1
+		{
+
+			if PLAY_SOUND
+			{
+				game.to_music_id = MusicId.BG
+				game.music_animation.start()
+			}
+
+			save_player_and_highscore()
+
+			game.fade_animation.start()
+
+			reset_entities()
+
+			game.is_invincible = true
+			game.player.health = 0
+			game.is_restarting = false
+			game.is_highscores_updated = false
+
+			game.is_render_title = true
+			game.is_render_start_menu = true
+			game.is_render_in_game_menu = false
+			game.cursor_current_index = 0
+			game.screen = Screen.Home
+		}
+	}
+
+	return true
+}
+
+controls_home :: proc(event: ^SDL.Event) -> bool
+{
+	if event.type != SDL.EventType.KEYDOWN do return true
+
+	key := event.key.keysym.scancode
+
+	if key == .S || key == .DOWN
+	{
+		game.cursor_current_index += 1
+		if game.cursor_current_index > (len(game.options_start_menu) - 1)
+		{
+			game.cursor_current_index = 0
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .W || key == .UP
+	{
+		game.cursor_current_index -= 1
+		if game.cursor_current_index < 0
+		{
+			game.cursor_current_index = (len(game.options_start_menu) - 1)
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .RETURN
+	{
+		selected_option := game.cursor_current_index
+
+		game.cursor_current_index = 0
+
+		switch selected_option
+		{
+			case 0: game.screen = Screen.NewGame
+			case 1: game.screen = Screen.LoadGame
+			case 2: game.screen = Screen.Highscores
+		}
+	}
+
+	return true
+}
+
+controls_new_game :: proc(event: ^SDL.Event) -> bool
+{
+
+	if event.type != SDL.EventType.KEYDOWN do return true
+
+	key := event.key.keysym.scancode
+
+	if key == .ESCAPE {
+		game.cursor_current_index = 0
+		game.screen = Screen.Home
+	}
+
+	if key == .S || key == .DOWN
+	{
+		game.cursor_current_index += 1
+		if game.cursor_current_index > (len(game.ordered_list) - 1)
+		{
+			game.cursor_current_index = 0
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .W || key == .UP
+	{
+
+		game.cursor_current_index -= 1
+		if game.cursor_current_index < 0
+		{
+			game.cursor_current_index = (len(game.ordered_list) - 1)
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .RETURN
+	{
+
+		game.selected_player_index = game.cursor_current_index
+
+		// TODO:: handle overwriting better
+		if game.players[game.selected_player_index].name != ""
+		{
+			fmt.println("OVERWRITING")
+		}
+
+		if game.texts[TextId.PlayerName].tex != nil
+		{
+			SDL.DestroyTexture(game.texts[TextId.PlayerName].tex)
+		}
+
+		// Time to enter the Player's new name
+		game.cursor_current_index = 0
+		game.screen = Screen.CreatePlayer
+
+	}
+
+	return true
+}
+
+controls_create_player :: proc(event: ^SDL.Event) -> bool
+{
+	if event.type != SDL.EventType.KEYDOWN do return true
+
+	key := event.key.keysym.scancode
+
+	if key == .ESCAPE {
+		game.cursor_current_index = 0
+		game.screen = Screen.Home
+	}
+
+	// TODO: FIX controls / layout for this letter select menu
+	if key == .S || key == .DOWN
+	{
+
+		if game.cursor_current_index >= 26
+		{
+			game.cursor_current_index = 0
+		}
+		else if game.cursor_current_index <= 12
+		{
+			game.cursor_current_index += 13
+		}
+		else
+		{
+			game.cursor_current_index = 26
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .W || key == .UP
+	{
+		if game.cursor_current_index >= 26
+		{
+			game.cursor_current_index = 13
+		}
+		else if game.cursor_current_index >= 13
+		{
+			game.cursor_current_index -= 13
+		}
+		else
+		{
+			game.cursor_current_index = 26
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .A || key == .LEFT
+	{
+
+		if game.cursor_current_index == 0
+		{
+			game.cursor_current_index = 12
+		}
+		else if game.cursor_current_index == 13
+		{
+			game.cursor_current_index = 25
+		}
+		else if game.cursor_current_index == 26
+		{
+			game.cursor_current_index = 27
+		}
+		else
+		{
+			game.cursor_current_index -= 1
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .D || key == .RIGHT
+	{
+
+		if game.cursor_current_index == 12
+		{
+			game.cursor_current_index = 0
+		}
+		else if game.cursor_current_index == 25
+		{
+			game.cursor_current_index = 13
+		}
+		else if game.cursor_current_index == 27
+		{
+			game.cursor_current_index = 26
+		}
+		else
+		{
+			game.cursor_current_index += 1
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	// SELECT Letters
+	if key == .SPACE
+	{
+		selected_letter := &game.letters[game.cursor_current_index]
+
+		if selected_letter.text == "BACK"
+		{
+			if len(game.player_name) < 1 do return true
+
+			shortened_name := game.player_name[:(len(game.player_name) - 1)]
+			game.player_name = shortened_name
+		}
+		else if selected_letter.text == "DONE"
+		{
+
+			if len(game.player_name) <= 3 do return true
+
+			game.begin_stage_animation.start()
+			game.fade_animation.start()
+
+			// create file::
+			flags := os.O_RDWR
+			file_handler, err_file := os.open("player_data.json", flags, 0)
+			defer os.close(file_handler)
+
+			if err_file != 0
+			{
+				fmt.println("player_data.json does not exist.")
+				return false
+			}
+
+			for player in &game.players
+			{
+				if game.player_name != player.name do continue
+
+				// TODO: show some overwrite prompt
+				fmt.println("Player already exists!")
+				game.screen = Screen.Home
+				return true
+			}
+
+
+		    new_player := Player_Data{ game.player_name, 0 }
+		    game.players[game.selected_player_index] = new_player
+
+		    json_bytes, err_json := json.marshal(game.players)
+
+		    if err_json != nil
+		    {
+				msg := fmt.tprintf("Expected `json.marshal` to return nil, got %v", err_json)
+
+		    	return false
+		    }
+
+			os.write_string(file_handler, string(json_bytes))
+
+			game.texts[TextId.PlayerName] = make_text(cstring(raw_data(game.player_name)))
+
+
+		}
+		else if len(game.player_name) < 10
+		{
+			game.player_name = strings.concatenate({game.player_name, string(selected_letter.text)})
+		}
+
+	}
+
+	return true
+}
+
+controls_load_game :: proc(event: ^SDL.Event) -> bool
+{
+
+	if event.type != SDL.EventType.KEYDOWN do return true
+
+	key := event.key.keysym.scancode
+
+	if key == .ESCAPE
+	{
+		game.cursor_current_index = 0
+		game.screen = Screen.Home
+	}
+
+	if key == .S || key == .DOWN
+	{
+		game.cursor_current_index += 1
+		if game.cursor_current_index > (len(game.ordered_list) - 1)
+		{
+			game.cursor_current_index = 0
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .W || key == .UP
+	{
+
+		game.cursor_current_index -= 1
+		if game.cursor_current_index < 0
+		{
+			game.cursor_current_index = (len(game.ordered_list) - 1)
+		}
+
+		if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.Select], 0)
+	}
+
+	if key == .RETURN
+	{
+
+		selected_player := game.cursor_current_index
+		game.cursor_current_index = 0
+		game.current_score = 0
+
+		game.player_name = game.players[selected_player].name
+
+		game.texts[TextId.PlayerName] = make_text(cstring(raw_data(game.player_name)))
+
+		game.begin_stage_animation.start()
+		game.fade_animation.start()
+		game.is_render_start_menu = false
+
+		if PLAY_SOUND
+		{
+			game.to_music_id = MusicId.Track_3
+			game.music_animation.start()
+		}
+
+	}
+
+	return true
+}
+
+controls_highscores :: proc(event: ^SDL.Event) -> bool
+{
+
+	if event.type != SDL.EventType.KEYDOWN do return true
+
+	key := event.key.keysym.scancode
+
+	if key == .ESCAPE || key == .RETURN {
+		game.cursor_current_index = 0
+		game.screen = Screen.Home
+	}
+
+	return true
+}
+
