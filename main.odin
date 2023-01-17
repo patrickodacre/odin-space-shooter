@@ -855,43 +855,7 @@ main :: proc()
 		// 3. Update and Render
 		****************************/
 
-		// background first...
-		for index in 0..<len(game.background_sections)
-		{
-			section := &game.background_sections[index]
-
-			right_side := section.dest.x + section.dest.w
-
-			if right_side < -(section.dest.w / 2)
-			{
-				next_section_index : int
-				if index < 4
-				{
-					next_section_index = index == 0 ? 3 : index - 1
-				}
-				else
-				{
-					next_section_index = index == 4 ? 7 : index - 1
-				}
-
-				next_section := &game.background_sections[next_section_index]
-
-				// position AFTER the last section in line
-				section.dest.x = next_section.dest.x + next_section.dest.w
-			}
-
-			section.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
-			tex := game.background_textures[section.background]
-
-			if game.screen != Screen.Play
-			{
-				tex = game.background_textures[Background.PlainStars]
-			}
-
-			SDL.RenderCopy(game.renderer, tex, nil, &section.dest)
-
-		}
-		// end backgrounds
+		do_background()
 
 		// create player
 		if game.screen == Screen.CreatePlayer
@@ -3586,6 +3550,54 @@ save_player_and_highscore :: proc()
 
 		game.is_highscores_updated = true
 	}
+
+
+}
+
+do_background :: proc()
+{
+	// iterate this way because we want
+	// access to multiple indexes in a single loop
+	for index in 0..<len(game.background_sections)
+	{
+		section := &game.background_sections[index]
+
+		right_side := section.dest.x + section.dest.w
+
+		// if this section is off screen,
+		// we need to reset its position to restart the cycle
+		if right_side < -(section.dest.w / 2)
+		{
+			next_section_index : int
+			if index < 4
+			{
+				next_section_index = index == 0 ? 3 : index - 1
+			}
+			else
+			{
+				next_section_index = index == 4 ? 7 : index - 1
+			}
+
+			next_section := &game.background_sections[next_section_index]
+
+			// position AFTER the right-most section in line.
+			// It will come from offscreen, and the transition will
+			// be smoother if the bg image has changed
+			section.dest.x = next_section.dest.x + next_section.dest.w
+		}
+
+		section.dest.x -= i32(get_delta_motion(BACKGROUND_SPEED))
+		tex := game.background_textures[section.background]
+
+		if game.screen != Screen.Play
+		{
+			tex = game.background_textures[Background.PlainStars]
+		}
+
+		SDL.RenderCopy(game.renderer, tex, nil, &section.dest)
+
+	}
+	// end backgrounds
 
 
 }
