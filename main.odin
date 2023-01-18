@@ -59,7 +59,6 @@ Game :: struct
 	sounds: [SoundId]^MIX.Chunk,
 	music: [MusicId]^MIX.Music,
 	is_restarting: bool,
-	is_render_title: bool,
 	is_render_start_menu: bool,
 	is_render_in_game_menu: bool,
 
@@ -82,6 +81,7 @@ Game :: struct
 
 	stage_reset_timer: f64,
 	perf_frequency: f64,
+	window: ^SDL.Window,
 	renderer: ^SDL.Renderer,
 
 	// player
@@ -302,7 +302,6 @@ game := Game{
 
 	chars = make(map[rune]Text),
 	screen = Screen.Home,
-	is_render_title = true,
 	is_render_start_menu = true,
 	overlay = SDL.Rect{0, 0, WINDOW_WIDTH, WINDOW_HEIGHT},
 	overlay_alpha = 0,
@@ -317,109 +316,29 @@ game := Game{
 // a proc (procedure) would be a 'function' in another language.
 main :: proc()
 {
-	assert(SDL.Init(SDL.INIT_VIDEO | SDL.INIT_AUDIO) == 0, SDL.GetErrorString())
+	init_game()
 	defer SDL.Quit()
-	assert(SDL_Image.Init(SDL_Image.INIT_PNG) != nil, SDL.GetErrorString())
 	defer SDL_Image.Quit()
-
-	init_font := SDL_TTF.Init()
-	assert(init_font == 0, SDL.GetErrorString())
-	game.font = SDL_TTF.OpenFont("assets/fonts/Terminal.ttf", 28)
-	assert(game.font != nil, SDL.GetErrorString())
 	defer SDL_TTF.Quit()
-
-	init_sound := MIX.Init(MIX.INIT_OGG)
-	assert(init_sound != -1, SDL.GetErrorString())
 	defer MIX.Quit()
-
-	FREQUENCY :: 44100
-	STEREO :: 2 // MONO is 1
-	CHUNK_SIZE :: 1024
-	// OpenAudio will initialize the Audio subsystem if not already
-	// https://wiki.libsdl.org/SDL_mixer/Mix_OpenAudio
-	opened_audio := MIX.OpenAudio(FREQUENCY, MIX.DEFAULT_FORMAT, STEREO, CHUNK_SIZE)
-	assert(opened_audio != -1, SDL.GetErrorString())
-
-	// channels aka tracks -- how many sounds to play simultaneously
-	// https://wiki.libsdl.org/SDL_mixer/Mix_AllocateChannels
-	// 8 is default
-	MIX.AllocateChannels(8)
-
-	// lasers
-	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadWAV
-	// returns a Chunk which is decoded into memory up front
-	// many channels - many chunks
-	game.sounds[SoundId.PlayerLaser] = MIX.LoadWAV("assets/sounds/player-laser.ogg")
-	assert(game.sounds[SoundId.PlayerLaser] != nil, SDL.GetErrorString())
-	defer MIX.FreeChunk(game.sounds[SoundId.PlayerLaser])
-
-	game.sounds[SoundId.DroneLaser] = MIX.LoadWAV("assets/sounds/drone-laser.ogg")
-	assert(game.sounds[SoundId.DroneLaser] != nil, SDL.GetErrorString())
-	defer MIX.FreeChunk(game.sounds[SoundId.DroneLaser])
-
-	// explosions
-	game.sounds[SoundId.PlayerExplosion] = MIX.LoadWAV("assets/sounds/player-explosion.ogg")
-	assert(game.sounds[SoundId.PlayerExplosion] != nil, SDL.GetErrorString())
-	defer MIX.FreeChunk(game.sounds[SoundId.PlayerExplosion])
-
-	game.sounds[SoundId.DroneExplosion] = MIX.LoadWAV("assets/sounds/drone-explosion.ogg")
-	assert(game.sounds[SoundId.DroneExplosion] != nil, SDL.GetErrorString())
-	defer MIX.FreeChunk(game.sounds[SoundId.DroneExplosion])
-
-	game.sounds[SoundId.Select] = MIX.LoadWAV("assets/sounds/select-2.ogg")
-	assert(game.sounds[SoundId.Select] != nil, SDL.GetErrorString())
-	defer MIX.FreeChunk(game.sounds[SoundId.Select])
-
-	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadMUS
-	// returns Music which is decoded on demand
-	// one channel for music
-	game.music[MusicId.BG] = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
-	assert(game.music[MusicId.BG] != nil, SDL.GetErrorString())
-
-	game.music[MusicId.Track_1] = MIX.LoadMUS("assets/sounds/track-1.ogg")
-	assert(game.music[MusicId.Track_1] != nil, SDL.GetErrorString())
-
-	game.music[MusicId.Track_2] = MIX.LoadMUS("assets/sounds/track-2.ogg")
-	assert(game.music[MusicId.Track_2] != nil, SDL.GetErrorString())
-
-	game.music[MusicId.Track_3] = MIX.LoadMUS("assets/sounds/track-3.ogg")
-	assert(game.music[MusicId.Track_3] != nil, SDL.GetErrorString())
-
-	window := SDL.CreateWindow(
-		"Odin Space Shooter",
-		SDL.WINDOWPOS_CENTERED,
-		SDL.WINDOWPOS_CENTERED,
-		WINDOW_WIDTH,
-		WINDOW_HEIGHT,
-		WINDOW_FLAGS,
-	)
-	assert(window != nil, SDL.GetErrorString())
-	defer SDL.DestroyWindow(window)
-
-	game.renderer = SDL.CreateRenderer(window, -1, RENDER_FLAGS)
-	assert(game.renderer != nil, SDL.GetErrorString())
+	defer SDL.DestroyWindow(game.window)
 	defer SDL.DestroyRenderer(game.renderer)
-
-	SDL.RenderSetLogicalSize(game.renderer, WINDOW_WIDTH, WINDOW_HEIGHT)
 
 	create_statics()
 	create_entities()
 	create_animations()
 	reset_timers()
 
-	if ok := load_players(); !ok
-	{
-		fmt.println("error loading players")
-		return
-	}
+	create_sounds()
+	defer MIX.FreeChunk(game.sounds[SoundId.PlayerLaser])
+	defer MIX.FreeChunk(game.sounds[SoundId.DroneLaser])
+	defer MIX.FreeChunk(game.sounds[SoundId.PlayerExplosion])
+	defer MIX.FreeChunk(game.sounds[SoundId.DroneExplosion])
+	defer MIX.FreeChunk(game.sounds[SoundId.Select])
 
-	if ok := load_highscores(); !ok
-	{
-		fmt.println("no no")
-		return
-	}
+	load_players()
+	load_highscores()
 
-	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
 	start : f64
 	end : f64
 
@@ -472,995 +391,22 @@ main :: proc()
 
 		do_background()
 
-		if game.screen == Screen.CreatePlayer do render_create_player_screen()
-
-		// render screen play
-		if game.screen == Screen.Play
+		switch game.screen
 		{
-
-			// Based on the positions that are currently visible to the Player...
-			// 1. Check Collisions
-			// 2. Move any entities that survive
-			// 3. Reset any entities that are offscreen
-			// 4. Render onscreen entities
-			// 5. Fire new lasers + render
-			// 6. Respawn new drones + render
-
-			// Render Lasers -- check collisions -> render
-			for laser in &game.lasers
-			{
-
-				if laser.health == 0 do continue
-
-				detect_collision : for drone in &game.drones
-				{
-					if drone.health == 0 do continue
-
-					hit := collision(
-						laser.dest.x,
-						laser.dest.y,
-						laser.dest.w,
-						laser.dest.h,
-
-						drone.dest.x,
-						drone.dest.y,
-						drone.dest.w,
-						drone.dest.h,
-						)
-
-					if hit
-					{
-
-						laser.health = 0
-
-				    	explode_drone(&drone)
-
-						game.prev_score = game.current_score
-				    	game.current_score += 1
-
-				    	spawn_nuke_pu: for index in 0..<NUM_NUKE_PU
-				    	{
-
-					    	pu := &game.nuke_power_ups[index].animation
-
-					    	if !pu.is_active
-					    	{
-					    		pu.start(index, &drone.dest, drone.dx)
-
-					    		break spawn_nuke_pu
-					    	}
-
-				    	}
-
-						break detect_collision
-					}
-
-				}
-
-				laser.dest.x += i32(get_delta_motion(laser.dx))
-
-				if laser.dest.x > WINDOW_WIDTH
-				{
-					laser.health = 0
-				}
-
-				if laser.health > 0
-				{
-					when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
-					SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
-				}
-			}
-
-			// Render Drone Lasers -- check collisions -> render
-			for laser, idx in &game.drone_lasers
-			{
-
-				if laser.health == 0 do continue
-
-				// check collision based on previous frame's rendered position
-				// check player health to make sure drone lasers don't explode
-				// while we're rendering our stage_reset() scenes after a player
-				// has already died.
-				if game.player.health > 0
-				{
-					hit := collision(
-						game.player.dest.x,
-						game.player.dest.y,
-						game.player.dest.w,
-						game.player.dest.h,
-
-						laser.dest.x,
-						laser.dest.y,
-						laser.dest.w,
-						laser.dest.h,
-						)
-
-					if hit
-					{
-						laser.health = 0
-
-						if !game.is_invincible
-						{
-					    	explode_player(&game.player)
-						}
-					}
-				}
-
-				if !game.is_paused
-				{
-					laser.dest.x += i32(laser.dx)
-					laser.dest.y += i32(laser.dy)
-				}
-
-				// reset laser if it's offscreen
-				// checking x and y b/c these drone
-				// lasers go in different directions
-				if laser.dest.x <= 0 ||
-				laser.dest.x >= WINDOW_WIDTH ||
-				laser.dest.y <= 0 ||
-				laser.dest.y >= WINDOW_HEIGHT
-				{
-					laser.health = 0
-				}
-
-				if laser.health > 0
-				{
-					when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
-					SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
-				}
-
-			}
-
-			// At this point we've checked our collisions
-			// and we've figured out our active Player Lasers,
-			// Drones, and Drone Lasers.
-
-			// render active drones and fire new lasers
-			respawned := false
-			for drone in &game.drones
-			{
-
-				if !respawned &&
-				drone.health == 0 &&
-				!(game.drone_spawn_cooldown > 0)
-				{
-					drone.dest.x = WINDOW_WIDTH
-					drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
-					drone.health = 1
-					drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE / 10 // ready to fire quickly
-
-					game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
-
-					respawned = true
-				}
-
-				if drone.health == 0 do continue
-
-				drone.dest.x -= i32(get_delta_motion(drone.dx))
-
-				if drone.dest.x <= 0
-				{
-					drone.health = 0
-				}
-
-				if drone.health > 0
-				{
-
-					// check player health to account for our 3-second transition
-					// scenes after a player dies
-					if  game.player.health > 0
-					{
-						hit := collision(
-							game.player.dest.x,
-							game.player.dest.y,
-							game.player.dest.w,
-							game.player.dest.h,
-
-							drone.dest.x,
-							drone.dest.y,
-							drone.dest.w,
-							drone.dest.h,
-							)
-
-						if hit
-						{
-
-					    	explode_drone(&drone)
-
-							if !game.is_invincible
-							{
-						    	explode_player(&game.player)
-							}
-
-					    	// skip the rest of this loop so we
-					    	// don't render our drone or fire its laser
-							continue
-						}
-					}
-
-					SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
-
-					// for each active drone, fire a laser if cooldown time reached
-					// and the drone isn't moving offscreen
-					// without this 300 pixel buffer, it looks like lasers
-					// are coming from offscreen
-					if drone.dest.x > 30 &&
-					drone.dest.x < (WINDOW_WIDTH - 30) &&
-					drone.ready <= 0 &&
-					game.drone_laser_cooldown < 0
-					{
-
-						// find a drone laser:
-						fire_drone_laser : for laser, idx in &game.drone_lasers
-						{
-
-							// find the first one available
-							if laser.health == 0 && !game.is_paused
-							{
-
-								// fire from the drone's position
-								laser.dest.x = drone.dest.x
-								laser.dest.y = drone.dest.y
-								laser.health = 1
-
-								new_dx, new_dy := calc_slope(
-									laser.dest.x,
-									laser.dest.y,
-									game.player.dest.x,
-									game.player.dest.y,
-									)
-
-								laser.dx = new_dx * get_delta_motion(drone.dx + 150)
-								laser.dy = new_dy * get_delta_motion(drone.dx + 150)
-
-								// reset the cooldown to prevent firing too rapidly
-								drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
-								game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
-
-								SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
-
-								if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.DroneLaser], 0)
-
-								break fire_drone_laser
-							}
-						}
-					}
-
-					// decrement our 'ready' timer
-					// to help distribute lasers more evenly between
-					// the active drones
-					drone.ready -= TARGET_DELTA_TIME
-
-				}
-
-			}
-
-			// update player position, etc...
-			if game.player.health > 0
-			{
-
-				delta_motion_x := get_delta_motion(game.player.dx)
-				delta_motion_y := get_delta_motion(game.player.dy)
-
-				if game.left
-				{
-					move_player(-delta_motion_x, 0)
-				}
-
-				if game.right
-				{
-					move_player(delta_motion_x, 0)
-				}
-
-				if game.up
-				{
-					move_player(0, -delta_motion_y)
-				}
-
-				if game.down
-				{
-					move_player(0, delta_motion_y)
-				}
-
-				when HITBOXES_VISIBLE do render_hitbox(&game.player.dest)
-
-				SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
-
-				if game.is_invincible
-				{
-					r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
-					SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
-					SDL.RenderDrawRect(game.renderer, &r)
-				}
-
-				// Fire Lasers
-				// NOTE :: firing new lasers AFTER
-				// Collisions have been detected; otherwise,
-				// collisions may be true for lasers that aren't rendered, yet.
-				// BUT this means rendering of new lasers is delayed by one frame.
-				// Is this the best way?
-				if game.fire && !(game.laser_cooldown > 0)
-				{
-					// find a laser:
-					fire : for laser in &game.lasers
-					{
-						// find the first one available
-						if laser.health == 0
-						{
-							laser.dest.x = game.player.dest.x + 20
-							laser.dest.y = game.player.dest.y
-							laser.health = 1
-							// reset the cooldown to prevent firing too rapidly
-							game.laser_cooldown = LASER_COOLDOWN_TIMER
-
-							SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
-							if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
-
-							break fire
-						}
-					}
-				}
-
-				// Fire Nuke
-				if game.fire_nuke && game.player_nukes > 0 && game.nuke_cooldown < 0
-				{
-					// find a nuke:
-					fire_nuke : for nuke, i in &game.nukes
-					{
-						// find the first one available
-						if !nuke.animation.is_active
-						{
-
-							nuke.animation.start(i, &game.player.dest, NUKE_SPEED)
-
-							break fire_nuke
-						}
-					}
-				}
-
-			}
-
-			// Player Dead
-			if game.player.health == 0 && !game.is_restarting
-			{
-
-				save_player_and_highscore()
-
-				msg := game.texts[TextId.DeathScreen]
-				msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
-				msg.dest.y = (WINDOW_HEIGHT / 2) - (msg.dest.h / 2)
-				SDL.RenderCopy(game.renderer, msg.tex, nil, &msg.dest)
-
-				game.stage_reset_timer -= TARGET_DELTA_TIME
-
-				if game.stage_reset_timer < 0
-				{
-					if PLAY_SOUND
-					{
-						game.to_music_id = MusicId.Track_3
-						game.music_animation.start()
-					}
-
-					game.reset_animation.start()
-					game.begin_stage_animation.start()
-					game.fade_animation.start()
-				}
-
-			}
-
-			// Render Nuke Explosions
-			for x in &game.nuke_explosions
-			{
-				if x.frame > 78
-				{
-					x.is_active = false
-				}
-
-				if !x.is_active do continue
-
-				source_rect := game.effect_nuke_explosion_frames[x.frame]
-
-				// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
-				x.dest.x -= i32(get_delta_motion(x.dx)) / 3
-
-				// if the explosion is relatively fresh
-				// we'll destroy any drones, lasers, and drone lasers
-				// that pass through
-				if x.frame < 50
-				{
-
-					nuke_explosion_area := SDL.Rect{
-						x = (x.dest.x + (x.dest.w / 4)),
-						y = (x.dest.y + (x.dest.h / 4)),
-						w = (x.dest.w - (x.dest.w / 2)),
-						h = (x.dest.h - (x.dest.h / 2)),
-					}
-
-					when HITBOXES_VISIBLE do render_hitbox(&nuke_explosion_area)
-
-					// check hit player
-					// don't blow yourself up!
-					if game.player.health > 0 && !(game.is_invincible)
-					{
-						hit := collision(
-							game.player.dest.x,
-							game.player.dest.y,
-							game.player.dest.w,
-							game.player.dest.h,
-
-							nuke_explosion_area.x,
-							nuke_explosion_area.y,
-							nuke_explosion_area.w,
-							nuke_explosion_area.h,
-							)
-
-						if hit
-						{
-							explode_player(&game.player)
-						}
-					}
-
-					for nuke in &game.nukes
-					{
-						// make sure we don't trigger this collision again and again
-						// as these frames continue to tick by
-						if nuke.health == 0 || nuke.is_exploding do continue
-
-						hit := collision(
-							nuke.dest.x,
-							nuke.dest.y,
-							nuke.dest.w,
-							nuke.dest.h,
-
-							nuke_explosion_area.x,
-							nuke_explosion_area.y,
-							nuke_explosion_area.w,
-							nuke_explosion_area.h,
-							)
-
-						if hit
-						{
-							// is_exploding is used in this specific spot
-							// to prevent the current_frame from being reset
-							// again and again as the nuke continues to collide
-							// with the first nuke's explosion
-							nuke.is_exploding = true
-							nuke.animation.current_frame = 2
-						}
-					}
-
-					for drone in &game.drones
-					{
-						if drone.health == 0 do continue
-
-						hit := collision(
-							drone.dest.x,
-							drone.dest.y,
-							drone.dest.w,
-							drone.dest.h,
-
-							nuke_explosion_area.x,
-							nuke_explosion_area.y,
-							nuke_explosion_area.w,
-							nuke_explosion_area.h,
-							)
-
-						if hit
-						{
-							explode_drone(&drone)
-
-					    	game.current_score += 1
-						}
-					}
-
-					for laser in &game.lasers
-					{
-						if laser.health == 0 do continue
-
-						hit := collision(
-							laser.dest.x,
-							laser.dest.y,
-							laser.dest.w,
-							laser.dest.h,
-
-							nuke_explosion_area.x,
-							nuke_explosion_area.y,
-							nuke_explosion_area.w,
-							nuke_explosion_area.h,
-							)
-
-						if hit
-						{
-							laser.health = 0
-							// this starting position looks a little better when our laser explodes
-							explode((laser.dest.x + laser.dest.w), laser.dest.y, laser.dx)
-						}
-					}
-
-
-					for laser in &game.drone_lasers
-					{
-						if laser.health == 0 do continue
-
-						hit := collision(
-							laser.dest.x,
-							laser.dest.y,
-							laser.dest.w,
-							laser.dest.h,
-
-							nuke_explosion_area.x,
-							nuke_explosion_area.y,
-							nuke_explosion_area.w,
-							nuke_explosion_area.h,
-							)
-
-						if hit
-						{
-							laser.health = 0
-							x := laser.dest.x - (laser.dest.w / 2)
-							y := laser.dest.y - (laser.dest.h / 2)
-							explode(x, y, laser.dx)
-						}
-					}
-
-
-
-				}
-
-				SDL.RenderCopy(game.renderer, game.nuke_sprite_sheet, &source_rect, &x.dest)
-
-				x.frame_timer -= TARGET_DELTA_TIME
-
-				// switch frames
-				if x.frame_timer < 0
-				{
-					// restart timer
-					x.frame_timer = FRAME_TIMER_NUKE_EXPLOSIONS
-					x.frame += 1
-				}
-
-			}
-
-
-			// Render Explosions
-			for x in &game.explosions
-			{
-				// there are 11 sprites
-				// so index 10 will be our final frame
-				if x.frame > 10
-				{
-					x.is_active = false
-				}
-
-				if x.is_active
-				{
-
-					t := game.effect_explosion_frames[x.frame]
-
-					// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
-					x.dest.x -= i32(get_delta_motion(x.dx)) / 3
-
-					SDL.RenderCopy(game.renderer, t, nil, &x.dest)
-
-					x.frame_timer -= TARGET_DELTA_TIME
-
-					// switch frames
-					if x.frame_timer < 0
-					{
-						// restart timer
-						x.frame_timer = FRAME_TIMER_EXPLOSIONS
-						x.frame += 1
-					}
-				}
-
-			}
-
-			// Change level every 10 points
-			if (!game.is_leveling_up) &&
-			game.prev_score > 0 &&
-			(game.prev_score %% 10 == 0) &&
-			game.current_score > game.prev_score
-			{
-				game.is_leveling_up = true
-			}
-
-			// change music?
-			if !game.level_change_animation.is_active &&
-			game.is_leveling_up &&
-			game.current_level < 9
-			{
-				game.current_level += 1
-
-				game.level_change_animation.start()
-
-				// very smooth transition
-				if PLAY_SOUND
-				{
-					// beat level 5
-					if game.current_level == 6
-					{
-						game.to_music_id = MusicId.Track_2
-						game.music_animation.start()
-					}
-				}
-
-			}
-
-			// Print Name & score
-			{
-				// player name:
-				player_name := &game.texts[TextId.PlayerName]
-
-				player_name.dest.x = 10
-				player_name.dest.y = 10
-				SDL.RenderCopy(game.renderer, player_name.tex, nil, &player_name.dest)
-
-				// score label
-				{
-					score := game.texts[TextId.ScoreLabel]
-					score.dest.x = player_name.dest.x + player_name.dest.w + 30
-					score.dest.y = 10
-					SDL.RenderCopy(game.renderer, score.tex, nil, &score.dest)
-
-					// current_score
-					score_str : string = (fmt.tprintf("%v", game.current_score))[:]
-					char_spacing : i32 = 2
-					prev_chars_w : i32 = 0
-
-					starting_x : i32 = score.dest.x + score.dest.w + 10
-					starting_y : i32 = score.dest.y
-
-					// iterate characters in the string
-					for c in score_str
-					{
-						// grab the texture for the single character
-						char : Text = game.chars[c]
-
-						// render this character after the previous one
-						char.dest.x = starting_x + prev_chars_w
-						char.dest.y = starting_y
-
-						SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
-
-						prev_chars_w += char.dest.w + char_spacing
-					}
-				}
-
-			}
-
-			nuke_starting_x : i32 = 10
-			nuke_starting_y : i32 = 30
-
-			nuke_spacing : i32 = 2
-			prev_nukes_w : i32 = 0
-
-			if game.player_nukes > 0
-			{
-
-				for i := 0; i < game.player_nukes; i += 1
-				{
-					game.loaded_nuke_dest.x = nuke_starting_x + prev_nukes_w
-					game.loaded_nuke_dest.y = nuke_starting_y
-
-					SDL.RenderCopy(game.renderer, game.loaded_nuke_tex, nil, &game.loaded_nuke_dest)
-
-					prev_nukes_w += game.loaded_nuke_dest.w + nuke_spacing
-				}
-
-			}
-
-
-	    	for index in 0..<NUM_NUKE_PU
-	    	{
-		    	nuke_pu := &game.nuke_power_ups[index]
-		    	nuke_pu.animation.maybe_run(index)
-	    	}
-
-	    	for nuke, i in &game.nukes
-	    	{
-		    	nuke.animation.maybe_run(i)
-	    	}
-
-		// end game.screen == Screen.Play
+			case .Home: screen_home()
+			case .NewGame: screen_new_game()
+			case .CreatePlayer: screen_create_player()
+			case .LoadGame: screen_load_game()
+			case .Highscores: screen_highscores()
+			case .Play: screen_game()
 		}
 
-
+		// Animations span across screens
 		game.begin_stage_animation.maybe_run()
 		game.fade_animation.maybe_run()
 		game.reset_animation.maybe_run()
 		game.music_animation.maybe_run()
 		game.level_change_animation.maybe_run()
-
-		// render highscores
-		if game.screen == Screen.Highscores
-		{
-			title := game.texts[TextId.HighscoresTitle]
-			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
-
-			for highscore, i in game.highscores
-			{
-				slot := &game.ordered_list[i]
-
-				SDL.RenderCopy(game.renderer, slot.tex, nil, &slot.dest)
-
-				if highscore.name == "" do continue
-
-				// render name
-				char_spacing : i32 = 2
-				starting_x : i32 = slot.dest.x + slot.dest.w + 30
-				starting_y : i32 = slot.dest.y
-				prev_chars_w : i32 = 0
-
-				for c in highscore.name
-				{
-					l := game.chars[c]
-
-					l.dest.x = starting_x + prev_chars_w
-					l.dest.y = starting_y
-
-					SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
-
-					prev_chars_w += l.dest.w + char_spacing
-
-				}
-
-				score_str : string = (fmt.tprintf("%v", highscore.score))[:]
-				starting_x = (WINDOW_WIDTH / 2) + ((WINDOW_WIDTH / 2) - slot.dest.x) - i32(len(score_str))
-				prev_chars_w = 0
-
-				// render score
-				for c in score_str
-				{
-					l := game.chars[c]
-
-					l.dest.x = starting_x + prev_chars_w
-					l.dest.y = starting_y
-
-					SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
-
-					prev_chars_w += l.dest.w + char_spacing
-
-				}
-
-
-			}
-		}
-
-		// render load game
-		if game.screen == Screen.LoadGame
-		{
-
-			title := game.texts[TextId.LoadGameTitle]
-
-			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
-
-			cursor := game.texts[TextId.Cursor]
-
-			// New Game and Load Game Options
-			for option, i in &game.ordered_list
-			{
-				alpha : u8
-
-				if game.cursor_current_index == i
-				{
-					alpha = 255
-					cursor.dest.x = option.dest.x - 20
-					cursor.dest.y = option.dest.y
-				}
-				else
-				{
-					alpha = 100
-				}
-
-				SDL.SetTextureAlphaMod(option.tex, alpha)
-				defer SDL.SetTextureAlphaMod(option.tex, 255)
-				SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
-				// undo any alpha set to 100
-
-				if game.players[i].name != ""
-				{
-
-					char_spacing : i32 = 2
-					starting_x : i32 = option.dest.x + option.dest.w + 30
-					starting_y : i32 = option.dest.y
-					prev_chars_w : i32 = 0
-
-					for c in game.players[i].name[:]
-					{
-						l := game.chars[c]
-
-						l.dest.x = starting_x + prev_chars_w
-						l.dest.y = starting_y
-
-						SDL.SetTextureAlphaMod(l.tex, alpha)
-						defer SDL.SetTextureAlphaMod(l.tex, 255)
-						SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
-						// undo any alpha set to 100
-
-						prev_chars_w += l.dest.w + char_spacing
-					}
-
-				}
-
-			}
-
-			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
-
-
-		}
-
-		if game.screen == Screen.NewGame
-		{
-			title := game.texts[TextId.CreatePlayerSelectSlot]
-
-			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
-
-			cursor := game.texts[TextId.Cursor]
-
-			// New Game and Load Game Options
-			for option, i in &game.ordered_list
-			{
-				alpha : u8
-
-				if game.cursor_current_index == i
-				{
-					alpha = 255
-					cursor.dest.x = option.dest.x - 20
-					cursor.dest.y = option.dest.y
-				}
-				else
-				{
-					alpha = 100
-				}
-
-				SDL.SetTextureAlphaMod(option.tex, alpha)
-				defer SDL.SetTextureAlphaMod(option.tex, 255)
-				SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
-				// undo any alpha set to 100
-
-
-				if game.players[i].name != ""
-				{
-
-					char_spacing : i32 = 2
-					starting_x : i32 = option.dest.x + option.dest.w + 30
-					starting_y : i32 = option.dest.y
-					prev_chars_w : i32 = 0
-
-					for c in game.players[i].name[:]
-					{
-						l := game.chars[c]
-
-						l.dest.x = starting_x + prev_chars_w
-						l.dest.y = starting_y
-
-						SDL.SetTextureAlphaMod(l.tex, alpha)
-						defer SDL.SetTextureAlphaMod(l.tex, 255)
-						SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
-
-						prev_chars_w += l.dest.w + char_spacing
-					}
-
-				}
-				else
-				{
-					empty := game.texts[TextId.Empty]
-					empty.dest.x = option.dest.x + option.dest.w + 30
-					empty.dest.y = option.dest.y
-
-					SDL.SetTextureAlphaMod(empty.tex, alpha)
-					defer SDL.SetTextureAlphaMod(empty.tex, 255)
-					SDL.RenderCopy(game.renderer, empty.tex, nil, &empty.dest)
-				}
-
-			}
-
-			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
-
-
-		}
-
-		if game.screen == Screen.Home && game.is_render_title
-		{
-
-			title := game.texts[TextId.HomeTitle]
-			title.dest.x = (WINDOW_WIDTH / 2) - (title.dest.w / 2)
-			title.dest.y = (WINDOW_HEIGHT / 2) - (title.dest.h / 2)
-
-			SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
-
-			if game.is_render_start_menu
-			{
-
-				cursor := game.texts[TextId.Cursor]
-
-				// New Game and Load Game Options
-				for option, i in &game.options_start_menu
-				{
-
-					if game.cursor_current_index == i
-					{
-						SDL.SetTextureAlphaMod(option.tex, 255)
-						cursor.dest.x = option.dest.x - 20
-						cursor.dest.y = option.dest.y
-					}
-					else
-					{
-						SDL.SetTextureAlphaMod(option.tex, 100)
-					}
-
-
-					SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
-					SDL.SetTextureAlphaMod(option.tex, 255)
-				}
-
-				SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
-
-			}
-		}
-
-
-		// in-game menu
-		if game.is_render_in_game_menu
-		{
-			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
-			SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, 100)
-
-			SDL.RenderFillRect(game.renderer, &game.overlay)
-
-			// rects and textures
-			menu := SDL.Rect{}
-			cont := game.options_in_game_menu[0]
-			quit := game.options_in_game_menu[1]
-			cursor := game.texts[TextId.Cursor]
-
-
-			menu.w = (WINDOW_WIDTH / 2) - (100)
-			menu.h = cont.dest.h + quit.dest.h + 200
-			menu.x = (WINDOW_WIDTH / 2) - (menu.w / 2)
-			menu.y = (WINDOW_HEIGHT / 2) - (menu.h / 2)
-
-			// aim for equal distance from center for both CONT and QUIT options
-			starting_x : i32 = (WINDOW_WIDTH / 2)
-			starting_y : i32 = (WINDOW_HEIGHT / 2)
-
-			option_heights := cont.dest.h + quit.dest.h
-
-			cont.dest.x = starting_x - (cont.dest.w / 2)
-			cont.dest.y = starting_y - ((option_heights / 2) + 30)
-
-			quit.dest.x = cont.dest.x
-			quit.dest.y = starting_y + 30
-
-			if game.cursor_current_index == 0
-			{
-
-				SDL.SetTextureAlphaMod(cont.tex, 255)
-				SDL.SetTextureAlphaMod(quit.tex, 100)
-				cursor.dest.x = cont.dest.x - 20
-				cursor.dest.y = cont.dest.y + (cont.dest.h / 4)
-			}
-			else
-			{
-				SDL.SetTextureAlphaMod(cont.tex, 100)
-				SDL.SetTextureAlphaMod(quit.tex, 255)
-				cursor.dest.x = quit.dest.x - 20
-				cursor.dest.y = quit.dest.y + (quit.dest.h / 4)
-			}
-
-			// render
-			SDL.SetRenderDrawColor(game.renderer, 255, 255, 255, 100)
-			SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
-			SDL.RenderFillRect(game.renderer, &menu)
-
-			SDL.RenderCopy(game.renderer, cont.tex, nil, &cont.dest)
-			SDL.RenderCopy(game.renderer, quit.tex, nil, &quit.dest)
-
-			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
-		}
-
-
-		// ... end LOOP code
 
 		// TIMERS
 		game.laser_cooldown -= TARGET_DELTA_TIME
@@ -1475,7 +421,7 @@ main :: proc()
 
 		if ((end - start) > TARGET_DELTA_TIME)
 		{
-			// happens on resize
+			// happens on resize and loading new music
 			fmt.println("Exceeded Target Delta Time")
 		}
 
@@ -2318,6 +1264,53 @@ explode :: proc(x, y: i32, dx: f64)
 	}
 }
 
+init_game :: proc()
+{
+	game.perf_frequency = f64(SDL.GetPerformanceFrequency())
+
+	init_sdl := SDL.Init(SDL.INIT_VIDEO | SDL.INIT_AUDIO)
+	assert(init_sdl == 0, SDL.GetErrorString())
+
+	init_image := SDL_Image.Init(SDL_Image.INIT_PNG)
+	assert(init_image != nil, SDL.GetErrorString())
+
+	init_font := SDL_TTF.Init()
+	assert(init_font == 0, SDL.GetErrorString())
+	game.font = SDL_TTF.OpenFont("assets/fonts/Terminal.ttf", 28)
+	assert(game.font != nil, SDL.GetErrorString())
+
+	init_sound := MIX.Init(MIX.INIT_OGG)
+	assert(init_sound != -1, SDL.GetErrorString())
+
+	FREQUENCY :: 44100
+	STEREO :: 2 // MONO is 1
+	CHUNK_SIZE :: 1024
+	// OpenAudio will initialize the Audio subsystem if not already
+	// https://wiki.libsdl.org/SDL_mixer/Mix_OpenAudio
+	opened_audio := MIX.OpenAudio(FREQUENCY, MIX.DEFAULT_FORMAT, STEREO, CHUNK_SIZE)
+	assert(opened_audio != -1, SDL.GetErrorString())
+
+	// channels aka tracks -- how many sounds to play simultaneously
+	// https://wiki.libsdl.org/SDL_mixer/Mix_AllocateChannels
+	// 8 is default
+	MIX.AllocateChannels(8)
+
+	game.window = SDL.CreateWindow(
+		"Odin Space Shooter",
+		SDL.WINDOWPOS_CENTERED,
+		SDL.WINDOWPOS_CENTERED,
+		WINDOW_WIDTH,
+		WINDOW_HEIGHT,
+		WINDOW_FLAGS,
+	)
+	assert(game.window != nil, SDL.GetErrorString())
+
+	game.renderer = SDL.CreateRenderer(game.window, -1, RENDER_FLAGS)
+	assert(game.renderer != nil, SDL.GetErrorString())
+	SDL.RenderSetLogicalSize(game.renderer, WINDOW_WIDTH, WINDOW_HEIGHT)
+
+}
+
 create_statics :: proc()
 {
 	game.levels[0] = make_text("Level 0", i32(2))
@@ -2588,7 +1581,6 @@ create_animations :: proc()
 				// check underflow
 				if new_alpha > game.current_level_alpha
 				{
-					// game.is_render_title = false
 					new_alpha = 0
 				}
 
@@ -2888,13 +1880,51 @@ create_animations :: proc()
 			// check underflow
 			if new_alpha > game.overlay_alpha
 			{
-				// game.is_render_title = false
 				new_alpha = 0
 			}
 
 			game.overlay_alpha = new_alpha
 		},
 	}
+
+
+}
+
+create_sounds :: proc()
+{
+	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadWAV
+	// returns a Chunk which is decoded into memory up front
+	// many channels - many chunks
+	game.sounds[SoundId.PlayerLaser] = MIX.LoadWAV("assets/sounds/player-laser.ogg")
+	assert(game.sounds[SoundId.PlayerLaser] != nil, SDL.GetErrorString())
+
+	game.sounds[SoundId.DroneLaser] = MIX.LoadWAV("assets/sounds/drone-laser.ogg")
+	assert(game.sounds[SoundId.DroneLaser] != nil, SDL.GetErrorString())
+
+	// explosions
+	game.sounds[SoundId.PlayerExplosion] = MIX.LoadWAV("assets/sounds/player-explosion.ogg")
+	assert(game.sounds[SoundId.PlayerExplosion] != nil, SDL.GetErrorString())
+
+	game.sounds[SoundId.DroneExplosion] = MIX.LoadWAV("assets/sounds/drone-explosion.ogg")
+	assert(game.sounds[SoundId.DroneExplosion] != nil, SDL.GetErrorString())
+
+	game.sounds[SoundId.Select] = MIX.LoadWAV("assets/sounds/select-2.ogg")
+	assert(game.sounds[SoundId.Select] != nil, SDL.GetErrorString())
+
+	// https://wiki.libsdl.org/SDL_mixer/Mix_LoadMUS
+	// returns Music which is decoded on demand
+	// one channel for music
+	game.music[MusicId.BG] = MIX.LoadMUS("assets/sounds/space-bg-seamless.ogg")
+	assert(game.music[MusicId.BG] != nil, SDL.GetErrorString())
+
+	game.music[MusicId.Track_1] = MIX.LoadMUS("assets/sounds/track-1.ogg")
+	assert(game.music[MusicId.Track_1] != nil, SDL.GetErrorString())
+
+	game.music[MusicId.Track_2] = MIX.LoadMUS("assets/sounds/track-2.ogg")
+	assert(game.music[MusicId.Track_2] != nil, SDL.GetErrorString())
+
+	game.music[MusicId.Track_3] = MIX.LoadMUS("assets/sounds/track-3.ogg")
+	assert(game.music[MusicId.Track_3] != nil, SDL.GetErrorString())
 
 
 }
@@ -2926,55 +1956,42 @@ make_text :: proc(text: cstring, scale: i32 = 1) -> Text
 	return Text{text, tex, dest}
 }
 
-load_highscores :: proc() -> bool
+load_highscores :: proc()
 {
 	using os
 	flags := O_RDWR | O_CREATE
 
 	file_handler, err_file := os.open("highscores.json", flags, 0)
+	assert(err_file == 0, "Error creating or opening highscores.json")
 	defer os.close(file_handler)
-
-	if err_file != 0
-	{
-		fmt.println("Error creating highscores file")
-
-		return false
-	}
 
 	// read full file
 	bytes_read, err_read_file := os.read_entire_file_from_handle(file_handler)
 
 	json.unmarshal(bytes_read, &game.highscores)
 
-	return true
 }
 
-load_players :: proc() -> bool
+load_players :: proc()
 {
 	using os
 	flags := O_RDWR | O_CREATE
 
 	file_handler, err_file := os.open("player_data.json", flags, 0)
+	assert(err_file == 0, "Error Creating or Opening player_data.json")
 	defer os.close(file_handler)
-
-	if err_file != 0
-	{
-		fmt.println("Error creating file")
-
-		return false
-	}
 
 	// read full file
 	bytes_read, err_read_file := os.read_entire_file_from_handle(file_handler)
 
 	json.unmarshal(bytes_read, &game.players)
 
+	// TODO: create textures for player names and scores
 	for player in &game.players
 	{
 		// player.tex =
 	}
 
-	return true
 }
 
 save_highscore_data :: proc() -> bool
@@ -2990,10 +2007,11 @@ save_highscore_data :: proc() -> bool
 	}
 
     json_bytes, err_json := json.marshal(game.highscores)
+    assert(err_json == nil)
 
     if err_json != nil
     {
-		msg := fmt.tprintf("Error saving highscores. Expected `json.marshal` to return nil, got %v", err_json)
+		fmt.tprintf("Error saving highscores. Expected `json.marshal` to return nil, got %v", err_json)
 
 		return false
     }
@@ -3219,8 +2237,991 @@ render_create_player_screen :: proc()
 }
 
 /*===========================
+	SCREENS
+===========================*/
+
+screen_home :: proc()
+{
+
+	title := game.texts[TextId.HomeTitle]
+	title.dest.x = (WINDOW_WIDTH / 2) - (title.dest.w / 2)
+	title.dest.y = (WINDOW_HEIGHT / 2) - (title.dest.h / 2)
+	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+	if game.is_render_start_menu
+	{
+
+		cursor := game.texts[TextId.Cursor]
+		SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
+		for option, i in &game.options_start_menu
+		{
+
+			if game.cursor_current_index == i
+			{
+				SDL.SetTextureAlphaMod(option.tex, 255)
+				cursor.dest.x = option.dest.x - 20
+				cursor.dest.y = option.dest.y
+			}
+			else
+			{
+				SDL.SetTextureAlphaMod(option.tex, 100)
+			}
+
+
+			SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+			SDL.SetTextureAlphaMod(option.tex, 255)
+		}
+
+	}
+}
+
+screen_new_game :: proc()
+{
+
+	title := game.texts[TextId.CreatePlayerSelectSlot]
+	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+	cursor := game.texts[TextId.Cursor]
+	SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
+	for option, i in &game.ordered_list
+	{
+		alpha : u8
+
+		if game.cursor_current_index == i
+		{
+			alpha = 255
+			cursor.dest.x = option.dest.x - 20
+			cursor.dest.y = option.dest.y
+		}
+		else
+		{
+			alpha = 100
+		}
+
+		SDL.SetTextureAlphaMod(option.tex, alpha)
+		// undo any alpha set to 100
+		defer SDL.SetTextureAlphaMod(option.tex, 255)
+		SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+
+		if game.players[i].name != ""
+		{
+
+			char_spacing : i32 = 2
+			starting_x : i32 = option.dest.x + option.dest.w + 30
+			starting_y : i32 = option.dest.y
+			prev_chars_w : i32 = 0
+
+			for c in game.players[i].name[:]
+			{
+				l := game.chars[c]
+
+				l.dest.x = starting_x + prev_chars_w
+				l.dest.y = starting_y
+
+				SDL.SetTextureAlphaMod(l.tex, alpha)
+				defer SDL.SetTextureAlphaMod(l.tex, 255)
+				SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+
+				prev_chars_w += l.dest.w + char_spacing
+			}
+
+		}
+		else
+		{
+			empty := game.texts[TextId.Empty]
+			empty.dest.x = option.dest.x + option.dest.w + 30
+			empty.dest.y = option.dest.y
+
+			SDL.SetTextureAlphaMod(empty.tex, alpha)
+			defer SDL.SetTextureAlphaMod(empty.tex, 255)
+			SDL.RenderCopy(game.renderer, empty.tex, nil, &empty.dest)
+		}
+
+	}
+
+}
+
+screen_create_player :: proc()
+{
+
+}
+
+screen_load_game :: proc()
+{
+
+	title := game.texts[TextId.LoadGameTitle]
+	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+	cursor := game.texts[TextId.Cursor]
+	SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+
+	for option, i in &game.ordered_list
+	{
+		alpha : u8
+
+		if game.cursor_current_index == i
+		{
+			alpha = 255
+			cursor.dest.x = option.dest.x - 20
+			cursor.dest.y = option.dest.y
+		}
+		else
+		{
+			alpha = 100
+		}
+
+		SDL.SetTextureAlphaMod(option.tex, alpha)
+		// undo any alpha set to 100
+		defer SDL.SetTextureAlphaMod(option.tex, 255)
+
+		SDL.RenderCopy(game.renderer, option.tex, nil, &option.dest)
+
+		// TODO: create textures for player data
+		if game.players[i].name != ""
+		{
+
+			char_spacing : i32 = 2
+			starting_x : i32 = option.dest.x + option.dest.w + 30
+			starting_y : i32 = option.dest.y
+			prev_chars_w : i32 = 0
+
+			for c in game.players[i].name[:]
+			{
+				l := game.chars[c]
+
+				l.dest.x = starting_x + prev_chars_w
+				l.dest.y = starting_y
+
+				SDL.SetTextureAlphaMod(l.tex, alpha)
+				defer SDL.SetTextureAlphaMod(l.tex, 255)
+				SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+				// undo any alpha set to 100
+
+				prev_chars_w += l.dest.w + char_spacing
+			}
+
+		}
+
+	}
+
+
+}
+
+// TODO: Create Textures for the highscore names and scores
+screen_highscores :: proc()
+{
+
+	title := game.texts[TextId.HighscoresTitle]
+	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+	for highscore, i in game.highscores
+	{
+		// render 1 - 5
+		li := &game.ordered_list[i]
+		SDL.RenderCopy(game.renderer, li.tex, nil, &li.dest)
+
+		if highscore.name == "" do continue
+
+		// render name
+		char_spacing : i32 = 2
+		starting_x : i32 = li.dest.x + li.dest.w + 30
+		starting_y : i32 = li.dest.y
+		prev_chars_w : i32 = 0
+
+		for c in highscore.name
+		{
+			l := game.chars[c]
+
+			l.dest.x = starting_x + prev_chars_w
+			l.dest.y = starting_y
+
+			SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+
+			prev_chars_w += l.dest.w + char_spacing
+
+		}
+
+		score_str : string = (fmt.tprintf("%v", highscore.score))[:]
+		starting_x = (WINDOW_WIDTH / 2) + ((WINDOW_WIDTH / 2) - li.dest.x) - i32(len(score_str))
+		prev_chars_w = 0
+
+		// render score
+		for c in score_str
+		{
+			l := game.chars[c]
+
+			l.dest.x = starting_x + prev_chars_w
+			l.dest.y = starting_y
+
+			SDL.RenderCopy(game.renderer, l.tex, nil, &l.dest)
+
+			prev_chars_w += l.dest.w + char_spacing
+
+		}
+
+	}
+
+}
+
+screen_game :: proc()
+{
+
+	// Based on the positions that are currently visible to the Player...
+	// 1. Check Collisions
+	// 2. Move any entities that survive
+	// 3. Reset any entities that are offscreen
+	// 4. Render onscreen entities
+	// 5. Fire new lasers + render
+	// 6. Respawn new drones + render
+
+	// Render Lasers -- check collisions -> render
+	for laser in &game.lasers
+	{
+
+		if laser.health == 0 do continue
+
+		detect_collision : for drone in &game.drones
+		{
+			if drone.health == 0 do continue
+
+			hit := collision(
+				laser.dest.x,
+				laser.dest.y,
+				laser.dest.w,
+				laser.dest.h,
+
+				drone.dest.x,
+				drone.dest.y,
+				drone.dest.w,
+				drone.dest.h,
+				)
+
+			if hit
+			{
+
+				laser.health = 0
+
+		    	explode_drone(&drone)
+
+				game.prev_score = game.current_score
+		    	game.current_score += 1
+
+		    	spawn_nuke_pu: for index in 0..<NUM_NUKE_PU
+		    	{
+
+			    	pu := &game.nuke_power_ups[index].animation
+
+			    	if !pu.is_active
+			    	{
+			    		pu.start(index, &drone.dest, drone.dx)
+
+			    		break spawn_nuke_pu
+			    	}
+
+		    	}
+
+				break detect_collision
+			}
+
+		}
+
+		laser.dest.x += i32(get_delta_motion(laser.dx))
+
+		if laser.dest.x > WINDOW_WIDTH
+		{
+			laser.health = 0
+		}
+
+		if laser.health > 0
+		{
+			when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
+			SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
+		}
+	}
+
+	// Render Drone Lasers -- check collisions -> render
+	for laser, idx in &game.drone_lasers
+	{
+
+		if laser.health == 0 do continue
+
+		// check collision based on previous frame's rendered position
+		// check player health to make sure drone lasers don't explode
+		// while we're rendering our stage_reset() scenes after a player
+		// has already died.
+		if game.player.health > 0
+		{
+			hit := collision(
+				game.player.dest.x,
+				game.player.dest.y,
+				game.player.dest.w,
+				game.player.dest.h,
+
+				laser.dest.x,
+				laser.dest.y,
+				laser.dest.w,
+				laser.dest.h,
+				)
+
+			if hit
+			{
+				laser.health = 0
+
+				if !game.is_invincible
+				{
+			    	explode_player(&game.player)
+				}
+			}
+		}
+
+		if !game.is_paused
+		{
+			laser.dest.x += i32(laser.dx)
+			laser.dest.y += i32(laser.dy)
+		}
+
+		// reset laser if it's offscreen
+		// checking x and y b/c these drone
+		// lasers go in different directions
+		if laser.dest.x <= 0 ||
+		laser.dest.x >= WINDOW_WIDTH ||
+		laser.dest.y <= 0 ||
+		laser.dest.y >= WINDOW_HEIGHT
+		{
+			laser.health = 0
+		}
+
+		if laser.health > 0
+		{
+			when HITBOXES_VISIBLE do render_hitbox(&laser.dest)
+			SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
+		}
+
+	}
+
+	// At this point we've checked our collisions
+	// and we've figured out our active Player Lasers,
+	// Drones, and Drone Lasers.
+
+	// render active drones and fire new lasers
+	respawned := false
+	for drone in &game.drones
+	{
+
+		if !respawned &&
+		drone.health == 0 &&
+		!(game.drone_spawn_cooldown > 0)
+		{
+			drone.dest.x = WINDOW_WIDTH
+			drone.dest.y = i32(rand.float32_range(120, WINDOW_HEIGHT - 120))
+			drone.health = 1
+			drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE / 10 // ready to fire quickly
+
+			game.drone_spawn_cooldown = DRONE_SPAWN_COOLDOWN_TIMER
+
+			respawned = true
+		}
+
+		if drone.health == 0 do continue
+
+		drone.dest.x -= i32(get_delta_motion(drone.dx))
+
+		if drone.dest.x <= 0
+		{
+			drone.health = 0
+		}
+
+		if drone.health > 0
+		{
+
+			// check player health to account for our 3-second transition
+			// scenes after a player dies
+			if  game.player.health > 0
+			{
+				hit := collision(
+					game.player.dest.x,
+					game.player.dest.y,
+					game.player.dest.w,
+					game.player.dest.h,
+
+					drone.dest.x,
+					drone.dest.y,
+					drone.dest.w,
+					drone.dest.h,
+					)
+
+				if hit
+				{
+
+			    	explode_drone(&drone)
+
+					if !game.is_invincible
+					{
+				    	explode_player(&game.player)
+					}
+
+			    	// skip the rest of this loop so we
+			    	// don't render our drone or fire its laser
+					continue
+				}
+			}
+
+			SDL.RenderCopy(game.renderer, game.drone_tex, nil, &drone.dest)
+
+			// for each active drone, fire a laser if cooldown time reached
+			// and the drone isn't moving offscreen
+			// without this 300 pixel buffer, it looks like lasers
+			// are coming from offscreen
+			if drone.dest.x > 30 &&
+			drone.dest.x < (WINDOW_WIDTH - 30) &&
+			drone.ready <= 0 &&
+			game.drone_laser_cooldown < 0
+			{
+
+				// find a drone laser:
+				fire_drone_laser : for laser, idx in &game.drone_lasers
+				{
+
+					// find the first one available
+					if laser.health == 0 && !game.is_paused
+					{
+
+						// fire from the drone's position
+						laser.dest.x = drone.dest.x
+						laser.dest.y = drone.dest.y
+						laser.health = 1
+
+						new_dx, new_dy := calc_slope(
+							laser.dest.x,
+							laser.dest.y,
+							game.player.dest.x,
+							game.player.dest.y,
+							)
+
+						laser.dx = new_dx * get_delta_motion(drone.dx + 150)
+						laser.dy = new_dy * get_delta_motion(drone.dx + 150)
+
+						// reset the cooldown to prevent firing too rapidly
+						drone.ready = DRONE_LASER_COOLDOWN_TIMER_SINGLE
+						game.drone_laser_cooldown = DRONE_LASER_COOLDOWN_TIMER_ALL
+
+						SDL.RenderCopy(game.renderer, game.drone_laser_tex, &laser.source, &laser.dest)
+
+						if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.DroneLaser], 0)
+
+						break fire_drone_laser
+					}
+				}
+			}
+
+			// decrement our 'ready' timer
+			// to help distribute lasers more evenly between
+			// the active drones
+			drone.ready -= TARGET_DELTA_TIME
+
+		}
+
+	}
+
+	// update player position, etc...
+	if game.player.health > 0
+	{
+
+		delta_motion_x := get_delta_motion(game.player.dx)
+		delta_motion_y := get_delta_motion(game.player.dy)
+
+		if game.left
+		{
+			move_player(-delta_motion_x, 0)
+		}
+
+		if game.right
+		{
+			move_player(delta_motion_x, 0)
+		}
+
+		if game.up
+		{
+			move_player(0, -delta_motion_y)
+		}
+
+		if game.down
+		{
+			move_player(0, delta_motion_y)
+		}
+
+		when HITBOXES_VISIBLE do render_hitbox(&game.player.dest)
+
+		SDL.RenderCopy(game.renderer, game.player_tex, nil, &game.player.dest)
+
+		if game.is_invincible
+		{
+			r := SDL.Rect{ game.player.dest.x - 10, game.player.dest.y - 10, game.player.dest.w + 20, game.player.dest.h + 20 }
+			SDL.SetRenderDrawColor(game.renderer, 0, 255, 0, 255)
+			SDL.RenderDrawRect(game.renderer, &r)
+		}
+
+		// Fire Lasers
+		// NOTE :: firing new lasers AFTER
+		// Collisions have been detected; otherwise,
+		// collisions may be true for lasers that aren't rendered, yet.
+		// BUT this means rendering of new lasers is delayed by one frame.
+		// Is this the best way?
+		if game.fire && !(game.laser_cooldown > 0)
+		{
+			// find a laser:
+			fire : for laser in &game.lasers
+			{
+				// find the first one available
+				if laser.health == 0
+				{
+					laser.dest.x = game.player.dest.x + 20
+					laser.dest.y = game.player.dest.y
+					laser.health = 1
+					// reset the cooldown to prevent firing too rapidly
+					game.laser_cooldown = LASER_COOLDOWN_TIMER
+
+					SDL.RenderCopy(game.renderer, game.laser_tex, nil, &laser.dest)
+					if PLAY_SOUND do MIX.PlayChannel(-1, game.sounds[SoundId.PlayerLaser], 0)
+
+					break fire
+				}
+			}
+		}
+
+		// Fire Nuke
+		if game.fire_nuke && game.player_nukes > 0 && game.nuke_cooldown < 0
+		{
+			// find a nuke:
+			fire_nuke : for nuke, i in &game.nukes
+			{
+				// find the first one available
+				if !nuke.animation.is_active
+				{
+
+					nuke.animation.start(i, &game.player.dest, NUKE_SPEED)
+
+					break fire_nuke
+				}
+			}
+		}
+
+	}
+
+	// Player Dead
+	if game.player.health == 0 && !game.is_restarting
+	{
+
+		save_player_and_highscore()
+
+		msg := game.texts[TextId.DeathScreen]
+		msg.dest.x = (WINDOW_WIDTH / 2) - (msg.dest.w / 2)
+		msg.dest.y = (WINDOW_HEIGHT / 2) - (msg.dest.h / 2)
+		SDL.RenderCopy(game.renderer, msg.tex, nil, &msg.dest)
+
+		game.stage_reset_timer -= TARGET_DELTA_TIME
+
+		if game.stage_reset_timer < 0
+		{
+			if PLAY_SOUND
+			{
+				game.to_music_id = MusicId.Track_3
+				game.music_animation.start()
+			}
+
+			game.reset_animation.start()
+			game.begin_stage_animation.start()
+			game.fade_animation.start()
+		}
+
+	}
+
+	// Render Nuke Explosions
+	for x in &game.nuke_explosions
+	{
+		if x.frame > 78
+		{
+			x.is_active = false
+		}
+
+		if !x.is_active do continue
+
+		source_rect := game.effect_nuke_explosion_frames[x.frame]
+
+		// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
+		x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+
+		// if the explosion is relatively fresh
+		// we'll destroy any drones, lasers, and drone lasers
+		// that pass through
+		if x.frame < 50
+		{
+
+			nuke_explosion_area := SDL.Rect{
+				x = (x.dest.x + (x.dest.w / 4)),
+				y = (x.dest.y + (x.dest.h / 4)),
+				w = (x.dest.w - (x.dest.w / 2)),
+				h = (x.dest.h - (x.dest.h / 2)),
+			}
+
+			when HITBOXES_VISIBLE do render_hitbox(&nuke_explosion_area)
+
+			// check hit player
+			// don't blow yourself up!
+			if game.player.health > 0 && !(game.is_invincible)
+			{
+				hit := collision(
+					game.player.dest.x,
+					game.player.dest.y,
+					game.player.dest.w,
+					game.player.dest.h,
+
+					nuke_explosion_area.x,
+					nuke_explosion_area.y,
+					nuke_explosion_area.w,
+					nuke_explosion_area.h,
+					)
+
+				if hit
+				{
+					explode_player(&game.player)
+				}
+			}
+
+			for nuke in &game.nukes
+			{
+				// make sure we don't trigger this collision again and again
+				// as these frames continue to tick by
+				if nuke.health == 0 || nuke.is_exploding do continue
+
+				hit := collision(
+					nuke.dest.x,
+					nuke.dest.y,
+					nuke.dest.w,
+					nuke.dest.h,
+
+					nuke_explosion_area.x,
+					nuke_explosion_area.y,
+					nuke_explosion_area.w,
+					nuke_explosion_area.h,
+					)
+
+				if hit
+				{
+					// is_exploding is used in this specific spot
+					// to prevent the current_frame from being reset
+					// again and again as the nuke continues to collide
+					// with the first nuke's explosion
+					nuke.is_exploding = true
+					nuke.animation.current_frame = 2
+				}
+			}
+
+			for drone in &game.drones
+			{
+				if drone.health == 0 do continue
+
+				hit := collision(
+					drone.dest.x,
+					drone.dest.y,
+					drone.dest.w,
+					drone.dest.h,
+
+					nuke_explosion_area.x,
+					nuke_explosion_area.y,
+					nuke_explosion_area.w,
+					nuke_explosion_area.h,
+					)
+
+				if hit
+				{
+					explode_drone(&drone)
+
+			    	game.current_score += 1
+				}
+			}
+
+			for laser in &game.lasers
+			{
+				if laser.health == 0 do continue
+
+				hit := collision(
+					laser.dest.x,
+					laser.dest.y,
+					laser.dest.w,
+					laser.dest.h,
+
+					nuke_explosion_area.x,
+					nuke_explosion_area.y,
+					nuke_explosion_area.w,
+					nuke_explosion_area.h,
+					)
+
+				if hit
+				{
+					laser.health = 0
+					// this starting position looks a little better when our laser explodes
+					explode((laser.dest.x + laser.dest.w), laser.dest.y, laser.dx)
+				}
+			}
+
+
+			for laser in &game.drone_lasers
+			{
+				if laser.health == 0 do continue
+
+				hit := collision(
+					laser.dest.x,
+					laser.dest.y,
+					laser.dest.w,
+					laser.dest.h,
+
+					nuke_explosion_area.x,
+					nuke_explosion_area.y,
+					nuke_explosion_area.w,
+					nuke_explosion_area.h,
+					)
+
+				if hit
+				{
+					laser.health = 0
+					x := laser.dest.x - (laser.dest.w / 2)
+					y := laser.dest.y - (laser.dest.h / 2)
+					explode(x, y, laser.dx)
+				}
+			}
+
+
+
+		}
+
+		SDL.RenderCopy(game.renderer, game.nuke_sprite_sheet, &source_rect, &x.dest)
+
+		x.frame_timer -= TARGET_DELTA_TIME
+
+		// switch frames
+		if x.frame_timer < 0
+		{
+			// restart timer
+			x.frame_timer = FRAME_TIMER_NUKE_EXPLOSIONS
+			x.frame += 1
+		}
+
+	}
+
+
+	// Render Explosions
+	for x in &game.explosions
+	{
+		// there are 11 sprites
+		// so index 10 will be our final frame
+		if x.frame > 10
+		{
+			x.is_active = false
+		}
+
+		if x.is_active
+		{
+
+			t := game.effect_explosion_frames[x.frame]
+
+			// at explosion, the smoke travels at a speed /3 of that of the destroyed entity
+			x.dest.x -= i32(get_delta_motion(x.dx)) / 3
+
+			SDL.RenderCopy(game.renderer, t, nil, &x.dest)
+
+			x.frame_timer -= TARGET_DELTA_TIME
+
+			// switch frames
+			if x.frame_timer < 0
+			{
+				// restart timer
+				x.frame_timer = FRAME_TIMER_EXPLOSIONS
+				x.frame += 1
+			}
+		}
+
+	}
+
+	// Change level every 10 points
+	if (!game.is_leveling_up) &&
+	game.prev_score > 0 &&
+	(game.prev_score %% 10 == 0) &&
+	game.current_score > game.prev_score
+	{
+		game.is_leveling_up = true
+	}
+
+	// change music?
+	if !game.level_change_animation.is_active &&
+	game.is_leveling_up &&
+	game.current_level < 9
+	{
+		game.current_level += 1
+
+		game.level_change_animation.start()
+
+		// very smooth transition
+		if PLAY_SOUND
+		{
+			// beat level 5
+			if game.current_level == 6
+			{
+				game.to_music_id = MusicId.Track_2
+				game.music_animation.start()
+			}
+		}
+
+	}
+
+	// Print Name & score
+	{
+		// player name:
+		player_name := &game.texts[TextId.PlayerName]
+
+		player_name.dest.x = 10
+		player_name.dest.y = 10
+		SDL.RenderCopy(game.renderer, player_name.tex, nil, &player_name.dest)
+
+		// score label
+		score := game.texts[TextId.ScoreLabel]
+		score.dest.x = player_name.dest.x + player_name.dest.w + 30
+		score.dest.y = 10
+		SDL.RenderCopy(game.renderer, score.tex, nil, &score.dest)
+
+		// current_score
+		score_str : string = (fmt.tprintf("%v", game.current_score))[:]
+		char_spacing : i32 = 2
+		prev_chars_w : i32 = 0
+
+		starting_x : i32 = score.dest.x + score.dest.w + 10
+		starting_y : i32 = score.dest.y
+
+		// iterate characters in the string
+		for c in score_str
+		{
+			// grab the texture for the single character
+			char : Text = game.chars[c]
+
+			// render this character after the previous one
+			char.dest.x = starting_x + prev_chars_w
+			char.dest.y = starting_y
+
+			SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+			prev_chars_w += char.dest.w + char_spacing
+		}
+
+	}
+
+	// render loaded nukes
+	{
+
+		nuke_starting_x : i32 = 10
+		nuke_starting_y : i32 = 30
+
+		nuke_spacing : i32 = 2
+		prev_nukes_w : i32 = 0
+
+		if game.player_nukes > 0
+		{
+
+			for i := 0; i < game.player_nukes; i += 1
+			{
+				game.loaded_nuke_dest.x = nuke_starting_x + prev_nukes_w
+				game.loaded_nuke_dest.y = nuke_starting_y
+
+				SDL.RenderCopy(game.renderer, game.loaded_nuke_tex, nil, &game.loaded_nuke_dest)
+
+				prev_nukes_w += game.loaded_nuke_dest.w + nuke_spacing
+			}
+
+		}
+	}
+
+	for index in 0..<NUM_NUKE_PU
+	{
+    	nuke_pu := &game.nuke_power_ups[index]
+    	nuke_pu.animation.maybe_run(index)
+	}
+
+	for nuke, i in &game.nukes
+	{
+    	nuke.animation.maybe_run(i)
+	}
+
+	// in-game menu render last,
+	// so that the menu overlays everything
+	if game.is_render_in_game_menu
+	{
+		SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+		SDL.SetRenderDrawColor(game.renderer, 0, 0, 0, 100)
+
+		SDL.RenderFillRect(game.renderer, &game.overlay)
+
+		// rects and textures
+		menu := SDL.Rect{}
+		cont := game.options_in_game_menu[0]
+		quit := game.options_in_game_menu[1]
+		cursor := game.texts[TextId.Cursor]
+
+
+		menu.w = (WINDOW_WIDTH / 2) - (100)
+		menu.h = cont.dest.h + quit.dest.h + 200
+		menu.x = (WINDOW_WIDTH / 2) - (menu.w / 2)
+		menu.y = (WINDOW_HEIGHT / 2) - (menu.h / 2)
+
+		// aim for equal distance from center for both CONT and QUIT options
+		starting_x : i32 = (WINDOW_WIDTH / 2)
+		starting_y : i32 = (WINDOW_HEIGHT / 2)
+
+		option_heights := cont.dest.h + quit.dest.h
+
+		cont.dest.x = starting_x - (cont.dest.w / 2)
+		cont.dest.y = starting_y - ((option_heights / 2) + 30)
+
+		quit.dest.x = cont.dest.x
+		quit.dest.y = starting_y + 30
+
+		if game.cursor_current_index == 0
+		{
+
+			SDL.SetTextureAlphaMod(cont.tex, 255)
+			SDL.SetTextureAlphaMod(quit.tex, 100)
+			cursor.dest.x = cont.dest.x - 20
+			cursor.dest.y = cont.dest.y + (cont.dest.h / 4)
+		}
+		else
+		{
+			SDL.SetTextureAlphaMod(cont.tex, 100)
+			SDL.SetTextureAlphaMod(quit.tex, 255)
+			cursor.dest.x = quit.dest.x - 20
+			cursor.dest.y = quit.dest.y + (quit.dest.h / 4)
+		}
+
+		// render
+		SDL.SetRenderDrawColor(game.renderer, 255, 255, 255, 100)
+		SDL.SetRenderDrawBlendMode(game.renderer, SDL.BlendMode.BLEND)
+		SDL.RenderFillRect(game.renderer, &menu)
+
+		SDL.RenderCopy(game.renderer, cont.tex, nil, &cont.dest)
+		SDL.RenderCopy(game.renderer, quit.tex, nil, &quit.dest)
+
+		SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
+	}
+
+
+
+
+}
+
+
+
+/*===========================
 	CONTROLS
- ===========================*/
+===========================*/
 controls_game :: proc(event: ^SDL.Event) -> bool
 {
 
@@ -3241,6 +3242,8 @@ controls_game :: proc(event: ^SDL.Event) -> bool
 	if key == .ESCAPE
 	{
 		if game.player.health < 1 do return true
+
+		game.cursor_current_index = 0
 
 		if game.is_render_in_game_menu do hide_game_menu()
 		else do show_game_menu()
@@ -3282,6 +3285,7 @@ controls_game :: proc(event: ^SDL.Event) -> bool
 		else if game.cursor_current_index == 1
 		{
 
+			// TODO:: doesn't always switch the screen properly
 			if PLAY_SOUND
 			{
 				game.to_music_id = MusicId.BG
@@ -3299,7 +3303,6 @@ controls_game :: proc(event: ^SDL.Event) -> bool
 			game.is_restarting = false
 			game.is_highscores_updated = false
 
-			game.is_render_title = true
 			game.is_render_start_menu = true
 			game.is_render_in_game_menu = false
 			game.cursor_current_index = 0
@@ -3620,7 +3623,6 @@ controls_load_game :: proc(event: ^SDL.Event) -> bool
 	{
 
 		selected_player := game.cursor_current_index
-		game.cursor_current_index = 0
 		game.current_score = 0
 
 		game.player_name = game.players[selected_player].name
