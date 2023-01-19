@@ -66,12 +66,12 @@ Game :: struct
 	fade_animation: Animation,
 	reset_animation: Animation,
 	music_animation: Animation,
-	level_change_animation: Animation,
+	level_change_animation: LevelChange_Animation,
 	to_music_id: MusicId,
 
 	font: ^SDL_TTF.Font,
 	texts: [TextId]Text,
-	levels: [10]Text,
+	levels: [11]Text,
 	chars: map[rune]Text,
 
 	screen: Screen,
@@ -190,6 +190,16 @@ Animation :: struct
 	frames: [dynamic]Frame,
 	maybe_run: proc(index: int = 0),
 	start: proc(index: int = 0, dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0),
+}
+
+LevelChange_Animation :: struct
+{
+	is_active: bool,
+	current_frame: int,
+	frames: [3]Frame,
+	level: int,
+	maybe_run: proc(),
+	start: proc(level: int),
 }
 
 Frame :: struct
@@ -724,8 +734,8 @@ create_entities :: proc()
 
 					explode_nuke(n)
 
-					game.prev_score = game.current_score
 			    	game.current_score += 1
+			    	increase_score()
 
 
 					break detect_nuke_collision
@@ -1323,6 +1333,7 @@ create_statics :: proc()
 	game.levels[7] = make_text("Level 7", i32(2))
 	game.levels[8] = make_text("Level 8", i32(2))
 	game.levels[9] = make_text("Level 9", i32(2))
+	game.levels[10] = make_text("Level 10", i32(2))
 
 	// texts
 	game.texts[TextId.HomeTitle] = make_text("Space Shooter", i32(4))
@@ -1485,18 +1496,19 @@ create_statics :: proc()
 
 create_animations :: proc()
 {
+	// Game level change
 	{
-		game.level_change_animation = Animation{}
+		game.level_change_animation = LevelChange_Animation{}
 		a := &game.level_change_animation
-		a.frames = make([dynamic]Frame, 3, 3)
 		a.current_frame = 0
 		a.is_active = false
-		a.start = proc(_index: int = 0, _dest: ^SDL.Rect = nil, dx: f64 = 0, starting_frame: int = 0)
+		a.start = proc(level: int)
 		{
+			game.level_change_animation.level = level
 			game.level_change_animation.current_frame = 0
 			game.level_change_animation.is_active = true
 		}
-		a.maybe_run = proc(_index: int = 0)
+		a.maybe_run = proc()
 		{
 
 			a := &game.level_change_animation
@@ -1519,6 +1531,9 @@ create_animations :: proc()
 
 				frame := &a.frames[a.current_frame]
 
+				// TODO:: should we make Frame actions
+				// a type specific to the animation?
+				_index := 0
 				frame.action(_index)
 
 				frame.timer -= TARGET_DELTA_TIME
@@ -1549,7 +1564,7 @@ create_animations :: proc()
 
 				game.current_level_alpha = new_alpha
 
-				level := &game.levels[game.current_level]
+				level := &game.levels[game.level_change_animation.level]
 				level.dest.x = (WINDOW_WIDTH / 2) - (level.dest.w / 2)
 				level.dest.y = (WINDOW_HEIGHT / 2)
 				SDL.SetTextureAlphaMod(level.tex, game.current_level_alpha)
@@ -1563,7 +1578,7 @@ create_animations :: proc()
 			action = proc(_index: int) {
 				game.current_level_alpha = 255
 
-				level := &game.levels[game.current_level]
+				level := &game.levels[game.level_change_animation.level]
 				level.dest.x = (WINDOW_WIDTH / 2) - (level.dest.w / 2)
 				level.dest.y = (WINDOW_HEIGHT / 2)
 				SDL.SetTextureAlphaMod(level.tex, game.current_level_alpha)
@@ -1586,7 +1601,7 @@ create_animations :: proc()
 
 				game.current_level_alpha = new_alpha
 
-				level := &game.levels[game.current_level]
+				level := &game.levels[game.level_change_animation.level]
 				level.dest.x = (WINDOW_WIDTH / 2) - (level.dest.w / 2)
 				level.dest.y = (WINDOW_HEIGHT / 2)
 				SDL.SetTextureAlphaMod(level.tex, game.current_level_alpha)
@@ -2505,8 +2520,8 @@ screen_game :: proc()
 
 		    	explode_drone(&drone)
 
-				game.prev_score = game.current_score
 		    	game.current_score += 1
+		    	increase_score()
 
 		    	spawn_nuke_pu: for index in 0..<NUM_NUKE_PU
 		    	{
@@ -2940,6 +2955,7 @@ screen_game :: proc()
 					explode_drone(&drone)
 
 			    	game.current_score += 1
+			    	increase_score()
 				}
 			}
 
@@ -3045,29 +3061,18 @@ screen_game :: proc()
 
 	}
 
-	// Change level every 10 points
-	if (!game.is_leveling_up) &&
-	game.prev_score > 0 &&
-	(game.prev_score %% 10 == 0) &&
-	game.current_score > game.prev_score
-	{
-		game.is_leveling_up = true
-	}
-
-	// change music?
-	if !game.level_change_animation.is_active &&
-	game.is_leveling_up &&
-	game.current_level < 9
+	// max level 10
+	if game.is_leveling_up && game.current_level <= 10
 	{
 		game.current_level += 1
+		game.is_leveling_up = false
+		game.level_change_animation.start(game.current_level)
 
-		game.level_change_animation.start()
-
-		// very smooth transition
-		if PLAY_SOUND
+		// change music at level 10,
+		// TODO: make game faster and more difficult
+		if game.current_level == 10
 		{
-			// beat level 5
-			if game.current_level == 6
+			if PLAY_SOUND
 			{
 				game.to_music_id = MusicId.Track_2
 				game.music_animation.start()
@@ -3657,5 +3662,14 @@ controls_highscores :: proc(event: ^SDL.Event) -> bool
 	}
 
 	return true
+}
+
+increase_score :: proc()
+{
+	game.current_score += 1
+	if game.current_score > 0 && game.current_score %% 10 == 0
+	{
+		game.is_leveling_up = true
+	}
 }
 
