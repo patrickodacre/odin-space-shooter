@@ -67,6 +67,7 @@ Game :: struct
 	reset_animation: Animation,
 	music_animation: Animation,
 	level_change_animation: LevelChange_Animation,
+	game_quit_animation: Game_Quit_Animation,
 	to_music_id: MusicId,
 
 	font: ^SDL_TTF.Font,
@@ -417,6 +418,7 @@ main :: proc()
 		game.reset_animation.maybe_run()
 		game.music_animation.maybe_run()
 		game.level_change_animation.maybe_run()
+		game.game_quit_animation.maybe_run()
 
 		// TIMERS
 		game.laser_cooldown -= TARGET_DELTA_TIME
@@ -1496,6 +1498,8 @@ create_statics :: proc()
 
 create_animations :: proc()
 {
+	game.game_quit_animation = new_animation_game_quit()
+
 	// Game level change
 	{
 		game.level_change_animation = LevelChange_Animation{}
@@ -3290,28 +3294,9 @@ controls_game :: proc(event: ^SDL.Event) -> bool
 		else if game.cursor_current_index == 1
 		{
 
-			// TODO:: doesn't always switch the screen properly
-			if PLAY_SOUND
-			{
-				game.to_music_id = MusicId.BG
-				game.music_animation.start()
-			}
-
 			save_player_and_highscore()
 
-			game.fade_animation.start()
-
-			reset_entities()
-
-			game.is_invincible = true
-			game.player.health = 0
-			game.is_restarting = false
-			game.is_highscores_updated = false
-
-			game.is_render_start_menu = true
-			game.is_render_in_game_menu = false
-			game.cursor_current_index = 0
-			game.screen = Screen.Home
+			game.game_quit_animation.start()
 		}
 	}
 
@@ -3671,5 +3656,123 @@ increase_score :: proc()
 	{
 		game.is_leveling_up = true
 	}
+}
+
+
+
+// Animations
+Game_Quit_Animation_Frame :: struct
+{
+	duration: f64,
+	timer: f64,
+	action: proc(),
+}
+
+Game_Quit_Animation :: struct
+{
+	is_active: bool,
+	current_frame: int,
+	frames: [4]Game_Quit_Animation_Frame,
+	maybe_run: proc(),
+	start: proc(),
+}
+
+new_animation_game_quit :: proc() -> Game_Quit_Animation
+{
+	a := Game_Quit_Animation{}
+	a.is_active = false
+	a.current_frame = 0
+
+	a.start = proc()
+	{
+		a := &game.game_quit_animation
+		a.current_frame = 0
+		a.is_active = true
+
+		game.is_invincible = true
+		game.player.health = 0
+		game.is_restarting = true
+		game.is_highscores_updated = false
+		game.is_paused = true
+		game.is_render_in_game_menu = false
+
+		reset_entities()
+		reset_timers()
+
+		game.fade_animation.start()
+
+		if PLAY_SOUND
+		{
+			game.to_music_id = MusicId.BG
+			game.music_animation.start()
+		}
+
+	}
+
+	a.frames[0] = Game_Quit_Animation_Frame{
+		duration = TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2),
+		timer = TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2),
+		action = proc() {},
+	}
+
+	a.frames[1] = Game_Quit_Animation_Frame{
+		duration = TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 1),
+		timer = TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 1),
+		action = proc()
+		{
+			game.cursor_current_index = 0
+			game.is_render_start_menu = true
+			game.is_paused = false
+			game.screen = Screen.Home
+		},
+	}
+
+	// to match fade_animation frames
+	a.frames[2] = Game_Quit_Animation_Frame{
+		duration = TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2),
+		timer = TARGET_DELTA_TIME * (FRAMES_PER_SECOND * 2),
+		action = proc() {},
+	}
+
+	a.frames[3] = Game_Quit_Animation_Frame{
+		duration = TARGET_DELTA_TIME,
+		timer = TARGET_DELTA_TIME,
+		action = proc()
+		{
+			game.is_restarting = false
+		},
+	}
+
+
+	a.maybe_run = proc()
+	{
+
+		a := &game.game_quit_animation
+
+		if a.current_frame > (len(a.frames) - 1)
+		{
+			a.current_frame = 0
+			a.is_active = false
+		}
+
+		if a.is_active
+		{
+			frame := &a.frames[a.current_frame]
+
+			frame.action()
+
+			frame.timer -= TARGET_DELTA_TIME
+
+			// reset and move to the next frame
+			if frame.timer < 0
+			{
+				frame.timer = frame.duration
+				a.current_frame += 1
+			}
+
+		}
+	}
+
+	return a
 }
 
