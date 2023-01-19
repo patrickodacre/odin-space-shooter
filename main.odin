@@ -3252,6 +3252,10 @@ controls_game :: proc(event: ^SDL.Event) -> bool
 	{
 		if game.player.health < 1 do return true
 
+		if game.fade_animation.is_active do return true
+		if game.reset_animation.is_active do return true
+		if game.begin_stage_animation.is_active do return true
+
 		game.cursor_current_index = 0
 
 		if game.is_render_in_game_menu do hide_game_menu()
