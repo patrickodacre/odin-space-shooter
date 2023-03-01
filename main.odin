@@ -3527,6 +3527,12 @@ controls_create_player :: proc(event: ^SDL.Event) -> bool
 			game.begin_stage_animation.start()
 			game.fade_animation.start()
 
+			if PLAY_SOUND
+			{
+				game.to_music_id = MusicId.Track_3
+				game.music_animation.start()
+			}
+
 			// create file::
 			flags := os.O_RDWR
 			file_handler, err_file := os.open("player_data.json", flags, 0)
