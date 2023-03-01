@@ -2168,93 +2168,6 @@ do_background :: proc()
 
 }
 
-render_create_player_screen :: proc()
-{
-
-	title := game.texts[TextId.CreatePlayerTitle]
-	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
-
-
-	bottom_of_text_select : i32 = 0
-	// render letter options
-	{
-		// settings:
-		char_spacing : i32 : 30
-		letters_per_row : i32 : 6
-
-		total_spacing := char_spacing * (letters_per_row  - 1)
-		char_width := game.letters[0].dest.w
-		letter_options_width : i32 = (char_width * letters_per_row) + total_spacing
-
-		starting_x : i32 = (WINDOW_WIDTH / 2) - (letter_options_width / 2)
-		starting_y : i32 = title.dest.y + 100
-		prev_chars_w : i32 = 0
-		prev_chars_y : i32 = 0
-
-		bottom_of_text_select = starting_y
-
-		count : i32 = 0
-		for letter, i in &game.letters
-		{
-			count += 1
-			letter.dest.x = starting_x + prev_chars_w
-			letter.dest.y = starting_y + prev_chars_y
-
-			if i > 0 && (count %% letters_per_row == 0)
-			{
-				prev_chars_y += letter.dest.h + 10
-				prev_chars_w = 0
-
-				bottom_of_text_select += prev_chars_y
-			}
-			else
-			{
-				prev_chars_w += letter.dest.w + char_spacing
-			}
-
-			alpha : u8 = i == game.cursor_current_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
-			SDL.SetTextureAlphaMod(letter.tex, alpha)
-			defer SDL.SetTextureAlphaMod(letter.tex, 255)
-			SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
-
-		}
-	}
-
-	// render game.player_name
-	{
-
-		char_spacing : i32 = 10
-		prev_chars_w : i32 = 0
-
-		player_name_len : i32 = i32(len(game.player_name))
-		char_width : i32 = game.chars[utf8.string_to_runes("A")[0]].dest.w * 2
-
-		name_width := (player_name_len * char_width) + ((char_spacing * player_name_len) -1)
-
-		starting_x : i32 = (WINDOW_WIDTH / 2) - i32(name_width / 2)
-		starting_y : i32 = bottom_of_text_select + 20
-
-		// iterate characters in the string
-		for c in game.player_name
-		{
-			// grab the texture for the single character
-			char : Text = game.chars[c]
-
-			// render this character after the previous one
-			char.dest.x = starting_x + prev_chars_w
-			char.dest.y = starting_y
-			char.dest.w *= 2
-			char.dest.h *= 2
-
-			SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
-
-			prev_chars_w += char.dest.w + char_spacing
-		}
-
-	}
-
-}
-
 /*===========================
 	SCREENS
 ===========================*/
@@ -2364,6 +2277,89 @@ screen_new_game :: proc()
 
 screen_create_player :: proc()
 {
+
+	title := game.texts[TextId.CreatePlayerTitle]
+	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
+
+
+	bottom_of_text_select : i32 = 0
+	// render letter options
+	{
+		// settings:
+		char_spacing : i32 : 30
+		letters_per_row : i32 : 6
+
+		total_spacing := char_spacing * (letters_per_row  - 1)
+		char_width := game.letters[0].dest.w
+		letter_options_width : i32 = (char_width * letters_per_row) + total_spacing
+
+		starting_x : i32 = (WINDOW_WIDTH / 2) - (letter_options_width / 2)
+		starting_y : i32 = title.dest.y + 100
+		prev_chars_w : i32 = 0
+		prev_chars_y : i32 = 0
+
+		bottom_of_text_select = starting_y
+
+		count : i32 = 0
+		for letter, i in &game.letters
+		{
+			count += 1
+			letter.dest.x = starting_x + prev_chars_w
+			letter.dest.y = starting_y + prev_chars_y
+
+			if i > 0 && (count %% letters_per_row == 0)
+			{
+				prev_chars_y += letter.dest.h + 10
+				prev_chars_w = 0
+
+				bottom_of_text_select += prev_chars_y
+			}
+			else
+			{
+				prev_chars_w += letter.dest.w + char_spacing
+			}
+
+			alpha : u8 = i == game.cursor_current_index || (i == 27 && len(game.player_name) > 3) ? 255 : 100
+			SDL.SetTextureAlphaMod(letter.tex, alpha)
+			defer SDL.SetTextureAlphaMod(letter.tex, 255)
+			SDL.RenderCopy(game.renderer, letter.tex, nil, &letter.dest)
+
+		}
+	}
+
+	// render game.player_name
+	{
+
+		char_spacing : i32 = 10
+		prev_chars_w : i32 = 0
+
+		player_name_len : i32 = i32(len(game.player_name))
+		char_width : i32 = game.chars[utf8.string_to_runes("A")[0]].dest.w * 2
+
+		name_width := (player_name_len * char_width) + ((char_spacing * player_name_len) -1)
+
+		starting_x : i32 = (WINDOW_WIDTH / 2) - i32(name_width / 2)
+		starting_y : i32 = bottom_of_text_select + 20
+
+		// iterate characters in the string
+		for c in game.player_name
+		{
+			// grab the texture for the single character
+			char : Text = game.chars[c]
+
+			// render this character after the previous one
+			char.dest.x = starting_x + prev_chars_w
+			char.dest.y = starting_y
+			char.dest.w *= 2
+			char.dest.h *= 2
+
+			SDL.RenderCopy(game.renderer, char.tex, nil, &char.dest)
+
+			prev_chars_w += char.dest.w + char_spacing
+		}
+
+	}
+
 
 }
 
