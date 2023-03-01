@@ -2271,7 +2271,6 @@ screen_home :: proc()
 	{
 
 		cursor := game.texts[TextId.Cursor]
-		SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
 
 		for option, i in &game.options_start_menu
 		{
@@ -2281,6 +2280,7 @@ screen_home :: proc()
 				SDL.SetTextureAlphaMod(option.tex, 255)
 				cursor.dest.x = option.dest.x - 20
 				cursor.dest.y = option.dest.y
+				SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
 			}
 			else
 			{
@@ -2302,7 +2302,6 @@ screen_new_game :: proc()
 	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
 
 	cursor := game.texts[TextId.Cursor]
-	SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
 
 	for option, i in &game.ordered_list
 	{
@@ -2313,6 +2312,7 @@ screen_new_game :: proc()
 			alpha = 255
 			cursor.dest.x = option.dest.x - 20
 			cursor.dest.y = option.dest.y
+			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
 		}
 		else
 		{
@@ -2374,7 +2374,6 @@ screen_load_game :: proc()
 	SDL.RenderCopy(game.renderer, title.tex, nil, &title.dest)
 
 	cursor := game.texts[TextId.Cursor]
-	SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
 
 	for option, i in &game.ordered_list
 	{
@@ -2385,6 +2384,7 @@ screen_load_game :: proc()
 			alpha = 255
 			cursor.dest.x = option.dest.x - 20
 			cursor.dest.y = option.dest.y
+			SDL.RenderCopy(game.renderer, cursor.tex, nil, &cursor.dest)
 		}
 		else
 		{
